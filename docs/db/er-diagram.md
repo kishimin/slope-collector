@@ -9,7 +9,6 @@ erDiagram
     SOURCES {
         BIGINT_UNSIGNED id PK "AUTO_INCREMENT"
         VARCHAR_255 name "NOT NULL"
-        VARCHAR_32 status "NOT NULL"
         DATETIME created_at "NOT NULL"
         DATETIME updated_at "NOT NULL"
     }
@@ -18,7 +17,6 @@ erDiagram
         BIGINT_UNSIGNED id PK "AUTO_INCREMENT"
         BIGINT_UNSIGNED source_id FK,UK "NOT NULL"
         VARCHAR_255 name UK "NOT NULL"
-        VARCHAR_32 status "NOT NULL"
         DATETIME created_at "NOT NULL"
         DATETIME updated_at "NOT NULL"
     }
@@ -57,7 +55,12 @@ erDiagram
 - `records`: `UNIQUE(entity_id, external_key)`
 - `assets`: `UNIQUE(record_id, position)`
 
+## Foreign Keys
+
+- `entities.source_id` → `sources.id` (`ON DELETE RESTRICT`)
+- `records.entity_id` → `entities.id` (`ON DELETE RESTRICT`)
+- `assets.record_id` → `records.id` (`ON DELETE RESTRICT`)
+
 ## Notes
 
 - All primary keys use `BIGINT UNSIGNED AUTO_INCREMENT`.
-- `sources.status` and `entities.status` are represented by application-side string enums.

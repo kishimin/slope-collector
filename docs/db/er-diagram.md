@@ -7,40 +7,40 @@ erDiagram
     RECORDS ||--o{ ASSETS : has
 
     SOURCES {
-        BIGINT_UNSIGNED id PK "AUTO_INCREMENT"
-        VARCHAR_255 name "NOT NULL"
-        DATETIME created_at "NOT NULL"
-        DATETIME updated_at "NOT NULL"
+        BIGINT id PK "UNSIGNED, AUTO_INCREMENT"
+        VARCHAR name "VARCHAR(255), NOT NULL"
+        DATETIME created_at "NOT NULL, DEFAULT CURRENT_TIMESTAMP"
+        DATETIME updated_at "NOT NULL, DEFAULT CURRENT_TIMESTAMP, ON UPDATE CURRENT_TIMESTAMP"
     }
 
     ENTITIES {
-        BIGINT_UNSIGNED id PK "AUTO_INCREMENT"
-        BIGINT_UNSIGNED source_id FK,UK "NOT NULL"
-        VARCHAR_255 name UK "NOT NULL"
+        BIGINT id PK "UNSIGNED, AUTO_INCREMENT"
+        BIGINT source_id FK,UK "UNSIGNED, NOT NULL"
+        VARCHAR name UK "VARCHAR(255), NOT NULL"
         BOOLEAN is_active "NOT NULL, DEFAULT TRUE"
-        DATETIME created_at "NOT NULL"
-        DATETIME updated_at "NOT NULL"
+        DATETIME created_at "NOT NULL, DEFAULT CURRENT_TIMESTAMP"
+        DATETIME updated_at "NOT NULL, DEFAULT CURRENT_TIMESTAMP, ON UPDATE CURRENT_TIMESTAMP"
     }
 
     RECORDS {
-        BIGINT_UNSIGNED id PK "AUTO_INCREMENT"
-        BIGINT_UNSIGNED entity_id FK,UK "NOT NULL"
-        VARCHAR_255 external_key UK "NOT NULL"
-        VARCHAR_500 title "NOT NULL"
+        BIGINT id PK "UNSIGNED, AUTO_INCREMENT"
+        BIGINT entity_id FK,UK "UNSIGNED, NOT NULL"
+        VARCHAR external_key UK "VARCHAR(255), NOT NULL"
+        VARCHAR title "VARCHAR(500), NOT NULL"
         LONGTEXT body "NOT NULL"
-        VARCHAR_2048 source_url "NOT NULL"
+        VARCHAR source_url "VARCHAR(2048), NOT NULL"
         DATETIME published_at "NOT NULL"
-        DATETIME created_at "NOT NULL"
-        DATETIME updated_at "NOT NULL"
+        DATETIME created_at "NOT NULL, DEFAULT CURRENT_TIMESTAMP"
+        DATETIME updated_at "NOT NULL, DEFAULT CURRENT_TIMESTAMP, ON UPDATE CURRENT_TIMESTAMP"
     }
 
     ASSETS {
-        BIGINT_UNSIGNED id PK "AUTO_INCREMENT"
-        BIGINT_UNSIGNED record_id FK,UK "NOT NULL"
-        VARCHAR_2048 source_url "NOT NULL"
-        INT_UNSIGNED position UK "NOT NULL"
-        DATETIME created_at "NOT NULL"
-        DATETIME updated_at "NOT NULL"
+        BIGINT id PK "UNSIGNED, AUTO_INCREMENT"
+        BIGINT record_id FK,UK "UNSIGNED, NOT NULL"
+        VARCHAR source_url "VARCHAR(2048), NOT NULL"
+        INT position UK "UNSIGNED, NOT NULL"
+        DATETIME created_at "NOT NULL, DEFAULT CURRENT_TIMESTAMP"
+        DATETIME updated_at "NOT NULL, DEFAULT CURRENT_TIMESTAMP, ON UPDATE CURRENT_TIMESTAMP"
     }
 ```
 
@@ -66,3 +66,6 @@ erDiagram
 
 - All primary keys use `BIGINT UNSIGNED AUTO_INCREMENT`.
 - `entities.is_active` is a boolean flag and defaults to `TRUE`.
+- `created_at` defaults to `CURRENT_TIMESTAMP`.
+- `updated_at` defaults to `CURRENT_TIMESTAMP` and is automatically updated with `ON UPDATE CURRENT_TIMESTAMP`.
+- `records.published_at` is source data and has no default value.

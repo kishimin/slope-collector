@@ -17,7 +17,7 @@ erDiagram
         BIGINT_UNSIGNED id PK "AUTO_INCREMENT"
         BIGINT_UNSIGNED source_id FK,UK "NOT NULL"
         VARCHAR_255 name UK "NOT NULL"
-        VARCHAR_32 status "NOT NULL"
+        BOOLEAN is_active "NOT NULL, DEFAULT TRUE"
         DATETIME created_at "NOT NULL"
         DATETIME updated_at "NOT NULL"
     }
@@ -65,4 +65,4 @@ erDiagram
 ## Notes
 
 - All primary keys use `BIGINT UNSIGNED AUTO_INCREMENT`.
-- `entities.status` is represented by an application-side string enum (`ACTIVE` / `INACTIVE`).
+- `entities.is_active` is a boolean flag and defaults to `TRUE`.

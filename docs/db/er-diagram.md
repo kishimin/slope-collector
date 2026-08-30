@@ -8,7 +8,6 @@ erDiagram
 
     SOURCES {
         BIGINT_UNSIGNED id PK "AUTO_INCREMENT"
-        VARCHAR_64 code UK "NOT NULL"
         VARCHAR_255 name "NOT NULL"
         VARCHAR_32 status "NOT NULL"
         DATETIME created_at "NOT NULL"
@@ -54,7 +53,6 @@ erDiagram
 
 ## Unique Keys
 
-- `sources`: `UNIQUE(code)`
 - `entities`: `UNIQUE(source_id, name)`
 - `records`: `UNIQUE(entity_id, external_key)`
 - `assets`: `UNIQUE(record_id, position)`

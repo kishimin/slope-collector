@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import argparse
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
+from urllib.parse import urlsplit
 
 from bs4 import BeautifulSoup
 from markdownify import markdownify
@@ -15,7 +17,7 @@ from app.scraping.adapter import SourceAdapter
 from app.scraping.http_client import BoundedHttpClient, HttpLimits
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Collection, Sequence
 
     import httpx
 
@@ -41,8 +43,13 @@ def generate_preview(
     """Fetch one article per source and overwrite a local Markdown artifact."""
     records: list[CollectedRecord] = []
     source_results: dict[SourceKey, str] = {}
+    private_hosts: set[str] = set()
     for source_key in source_keys:
         config = load_source_config(settings, source_key)
+        base_host = urlsplit(str(config.base_url)).hostname
+        if base_host is not None:
+            private_hosts.add(base_host.lower())
+        private_hosts.update(config.allowed_cdn_hosts)
         adapter = SourceAdapter(source_key, config)
         limits = HttpLimits(
             connect_timeout_seconds=settings.collector_connect_timeout_seconds,
@@ -66,16 +73,22 @@ def generate_preview(
             )
         source_results[source_key] = "success"
 
-    output_path.write_text(_render_markdown(records), encoding="utf-8")
+    output_path.write_text(
+        _render_markdown(records, private_hosts=private_hosts), encoding="utf-8"
+    )
     return PreviewResult(len(records), source_results)
 
 
-def _render_markdown(records: Sequence[CollectedRecord]) -> str:
+def _render_markdown(
+    records: Sequence[CollectedRecord], *, private_hosts: Collection[str]
+) -> str:
     sections = ["# Scraping preview", ""]
     for record in records:
         body = BeautifulSoup(record.body_html, "html.parser")
         for image in body.find_all("img"):
             image.decompose()
+        for link in body.find_all("a"):
+            link.unwrap()
         body_markdown = markdownify(str(body), heading_style="ATX").strip()
         alt_texts = [asset.alt_text for asset in record.assets if asset.alt_text]
         sections.extend(
@@ -94,7 +107,12 @@ def _render_markdown(records: Sequence[CollectedRecord]) -> str:
                 "",
             ]
         )
-    return "\n".join(sections).rstrip() + "\n"
+    markdown = "\n".join(sections).rstrip() + "\n"
+    for host in private_hosts:
+        markdown = re.sub(
+            re.escape(host), "[private-source]", markdown, flags=re.IGNORECASE
+        )
+    return markdown
 
 
 def main() -> int:

@@ -56,3 +56,20 @@ def test_settings_reject_invalid_database_url(
 
     with pytest.raises(ValidationError):
         load_settings()
+
+
+@pytest.mark.medium
+def test_settings_do_not_expose_invalid_database_url(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Validation errors do not reveal database credentials."""
+    secret_marker = "LEAKME"
+    database_url = f"postgresql://collector:{secret_marker}@db/collector"
+    monkeypatch.setenv("DATABASE_URL", database_url)
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(ValidationError) as error:
+        load_settings()
+
+    assert secret_marker not in str(error.value)

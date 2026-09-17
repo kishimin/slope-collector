@@ -132,7 +132,7 @@ def test_missing_source_configuration_does_not_leak_environment_values(
     monkeypatch.setenv("SOURCE_A_BASE_URL", f"https://{sentinel}.example")
     monkeypatch.chdir(tmp_path)
 
-    with pytest.raises(ValueError) as error:
+    with pytest.raises(ValueError, match="invalid configuration") as error:
         load_source_config(load_settings(), "source_a")
 
     assert sentinel not in str(error.value)

@@ -34,6 +34,7 @@ async def test_production_app_does_not_publish_api_docs() -> None:
     """Production does not expose internal API discovery endpoints."""
     settings = Settings(
         environment="production",
+        debug=False,
         database_url=SecretStr("mysql+pymysql://db/collector"),
     )
     production_app = create_app(settings)

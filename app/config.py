@@ -1,8 +1,8 @@
 """Runtime configuration boundary."""
 
-from typing import Literal
+from typing import Literal, Self
 
-from pydantic import SecretStr  # noqa: TC002 -- Pydantic resolves it at runtime.
+from pydantic import SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -20,6 +20,14 @@ class Settings(BaseSettings):
     debug: bool = False
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     database_url: SecretStr
+
+    @model_validator(mode="after")
+    def reject_production_debug_mode(self) -> Self:
+        """Reject framework diagnostics in production."""
+        if self.environment == "production" and self.debug:
+            message = "debug mode must be disabled in production"
+            raise ValueError(message)
+        return self
 
 
 def load_settings() -> Settings:

@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+    branches:
+      - main
+  schedule:
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DATABASE_URL: mysql+pymysql://db/collector
+  UV_FROZEN: "1"
+
+jobs:
+  quality:
+    name: Quality
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          enable-cache: true
+      - name: Install dependencies
+        run: uv sync --all-groups
+      - name: Check formatting
+        run: uv run ruff format --check .
+      - name: Run lint
+        run: uv run ruff check .
+      - name: Run type checks
+        run: uv run mypy app tests
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    env:
+      TEST_MARKERS: ${{ github.event_name == 'push' && 'small' || github.event_name == 'pull_request' && 'small or medium' || 'small or medium or large' }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install uv and Python
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          enable-cache: true
+      - name: Install dependencies
+        run: uv sync --all-groups
+      - name: Run push tests
+        if: github.event_name == 'push'
+        run: uv run pytest -m "$TEST_MARKERS"
+      - name: Run tests with coverage
+        if: github.event_name != 'push'
+        run: >-
+          uv run pytest -m "$TEST_MARKERS"
+          --cov=app
+          --cov-report=term-missing
+          --cov-report=xml
+
+  container:
+    name: Container
+    needs: [quality, test]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Build image
+        run: docker build --tag slope-collector:ci .

@@ -1,0 +1,1 @@
+"""Slope Collector application package."""

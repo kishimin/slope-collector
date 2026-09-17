@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Slope Collector daily
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+RandomizedDelaySec=30m
+Unit=slope-collector.service
+
+[Install]
+WantedBy=timers.target

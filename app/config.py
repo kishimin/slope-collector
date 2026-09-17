@@ -2,7 +2,14 @@
 
 from typing import Literal, Self
 
-from pydantic import MySQLDsn, SecretStr, field_validator, model_validator
+from pydantic import (
+    MySQLDsn,
+    SecretStr,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
+from pydantic_core import InitErrorDetails
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -26,7 +33,11 @@ class Settings(BaseSettings):
     @classmethod
     def validate_database_url(cls, value: SecretStr) -> SecretStr:
         """Reject database URLs that cannot address MySQL."""
-        MySQLDsn(value.get_secret_value())
+        try:
+            MySQLDsn(value.get_secret_value())
+        except ValidationError:
+            message = "database URL must be a valid MySQL URL"
+            raise ValueError(message) from None
         return value
 
     @model_validator(mode="after")
@@ -41,4 +52,21 @@ class Settings(BaseSettings):
 def load_settings() -> Settings:
     """Load and validate settings from the runtime environment."""
     # The generated type signature cannot represent environment-provided fields.
-    return Settings()  # type: ignore[call-arg]
+    try:
+        return Settings()  # type: ignore[call-arg]
+    except ValidationError as error:
+        sanitized_errors: list[InitErrorDetails] = []
+        for detail in error.errors(include_url=False):
+            sanitized_error = InitErrorDetails(
+                type=detail["type"],
+                loc=detail["loc"],
+                input=SecretStr(""),
+            )
+            if context := detail.get("ctx"):
+                sanitized_error["ctx"] = context
+            sanitized_errors.append(sanitized_error)
+        raise ValidationError.from_exception_data(
+            error.title,
+            sanitized_errors,
+            hide_input=True,
+        ) from None

@@ -73,3 +73,4 @@ def test_settings_do_not_expose_invalid_database_url(
         load_settings()
 
     assert secret_marker not in str(error.value)
+    assert secret_marker not in error.value.json()

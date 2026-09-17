@@ -1,6 +1,5 @@
 """Runtime configuration boundary."""
 
-import os
 import re
 from typing import Literal, Self
 
@@ -87,6 +86,35 @@ class SourceConfig(BaseModel):
         return value
 
 
+class PrivateSourceSettings(BaseSettings):
+    """Redacted raw values for one private source environment prefix."""
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+        case_sensitive=False,
+        hide_input_in_errors=True,
+    )
+
+    base_url: SecretStr
+    list_path: SecretStr
+    detail_path: SecretStr
+    allowed_cdn_hosts: SecretStr
+    list_item_selector: SecretStr
+    detail_link_selector: SecretStr
+    title_selector: SecretStr
+    body_selector: SecretStr
+    date_selector: SecretStr
+    author_selector: SecretStr
+    entity_link_selector: SecretStr
+    asset_selector: SecretStr
+    next_page_selector: SecretStr
+    record_id_pattern: SecretStr
+    entity_id_query_param: SecretStr
+    published_at_format: SecretStr
+
+
 class Settings(BaseSettings):
     """Validated settings loaded from the process environment."""
 
@@ -156,40 +184,40 @@ def load_settings() -> Settings:
 def load_source_config(settings: Settings, source_key: SourceKey) -> SourceConfig:
     """Load one private source contract without retaining raw errors."""
     del settings  # Settings establishes the validated runtime environment boundary.
-    prefix = source_key.upper()
-
-    def required(name: str) -> str:
-        value = os.environ.get(f"{prefix}_{name}", "").strip()
-        if not value:
-            message = f"incomplete configuration for {source_key}"
-            raise ValueError(message)
-        return value
 
     try:
+        # The generated signature cannot represent a runtime environment prefix.
+        private = PrivateSourceSettings(  # type: ignore[call-arg]
+            _env_prefix=f"{source_key.upper()}_"
+        )
+
+        def value(field: SecretStr) -> str:
+            return field.get_secret_value().strip()
+
         return SourceConfig.model_validate(
             {
-                "base_url": required("BASE_URL"),
-                "list_path": required("LIST_PATH"),
-                "detail_path": required("DETAIL_PATH"),
+                "base_url": value(private.base_url),
+                "list_path": value(private.list_path),
+                "detail_path": value(private.detail_path),
                 "allowed_cdn_hosts": tuple(
                     host.strip().lower()
-                    for host in required("ALLOWED_CDN_HOSTS").split(",")
+                    for host in value(private.allowed_cdn_hosts).split(",")
                     if host.strip()
                 ),
                 "selectors": {
-                    "list_item": required("LIST_ITEM_SELECTOR"),
-                    "detail_link": required("DETAIL_LINK_SELECTOR"),
-                    "title": required("TITLE_SELECTOR"),
-                    "body": required("BODY_SELECTOR"),
-                    "published_at": required("DATE_SELECTOR"),
-                    "author": required("AUTHOR_SELECTOR"),
-                    "entity_link": required("ENTITY_LINK_SELECTOR"),
-                    "asset": required("ASSET_SELECTOR"),
-                    "next_page": required("NEXT_PAGE_SELECTOR"),
+                    "list_item": value(private.list_item_selector),
+                    "detail_link": value(private.detail_link_selector),
+                    "title": value(private.title_selector),
+                    "body": value(private.body_selector),
+                    "published_at": value(private.date_selector),
+                    "author": value(private.author_selector),
+                    "entity_link": value(private.entity_link_selector),
+                    "asset": value(private.asset_selector),
+                    "next_page": value(private.next_page_selector),
                 },
-                "record_id_pattern": required("RECORD_ID_PATTERN"),
-                "entity_id_query_param": required("ENTITY_ID_QUERY_PARAM"),
-                "published_at_format": required("PUBLISHED_AT_FORMAT"),
+                "record_id_pattern": value(private.record_id_pattern),
+                "entity_id_query_param": value(private.entity_id_query_param),
+                "published_at_format": value(private.published_at_format),
             }
         )
     except ValidationError, ValueError:

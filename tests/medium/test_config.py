@@ -41,3 +41,18 @@ def test_settings_reject_missing_database_url(
 
     with pytest.raises(ValidationError):
         load_settings()
+
+
+@pytest.mark.medium
+@pytest.mark.parametrize("database_url", ["", "not-a-database-url"])
+def test_settings_reject_invalid_database_url(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    database_url: str,
+) -> None:
+    """A process cannot start with an unusable persistence boundary."""
+    monkeypatch.setenv("DATABASE_URL", database_url)
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(ValidationError):
+        load_settings()

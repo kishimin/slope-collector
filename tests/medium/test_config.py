@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 import pytest
 from pydantic import ValidationError
 
-from app.config import load_settings
+from app.config import load_settings, load_source_config
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -82,3 +82,57 @@ def test_settings_do_not_expose_invalid_database_url(
 
     assert sentinel not in str(error.value)
     assert sentinel not in error.value.json()
+
+
+@pytest.mark.medium
+def test_source_configuration_is_loaded_from_environment(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Target-specific transport and HTML contracts stay outside source code."""
+    values = {
+        "SOURCE_A_BASE_URL": "https://source.example",
+        "SOURCE_A_LIST_PATH": "/list?page={page}",
+        "SOURCE_A_DETAIL_PATH": "/detail/{record_id}",
+        "SOURCE_A_ALLOWED_CDN_HOSTS": "cdn.example,media.example",
+        "SOURCE_A_LIST_ITEM_SELECTOR": ".entry",
+        "SOURCE_A_DETAIL_LINK_SELECTOR": ".detail",
+        "SOURCE_A_TITLE_SELECTOR": ".title",
+        "SOURCE_A_BODY_SELECTOR": ".body",
+        "SOURCE_A_DATE_SELECTOR": ".date",
+        "SOURCE_A_AUTHOR_SELECTOR": ".author",
+        "SOURCE_A_ENTITY_LINK_SELECTOR": ".author-link",
+        "SOURCE_A_ASSET_SELECTOR": ".body img",
+        "SOURCE_A_NEXT_PAGE_SELECTOR": ".next",
+        "SOURCE_A_RECORD_ID_PATTERN": r"/detail/(?P<record_id>\d+)",
+        "SOURCE_A_ENTITY_ID_QUERY_PARAM": "entity",
+        "SOURCE_A_PUBLISHED_AT_FORMAT": "%Y-%m-%d %H:%M",
+    }
+    monkeypatch.setenv("DATABASE_URL", "mysql+pymysql://db/collector")
+    for name, value in values.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.chdir(tmp_path)
+
+    source = load_source_config(load_settings(), "source_a")
+
+    assert str(source.base_url) == "https://source.example/"
+    assert source.allowed_cdn_hosts == ("cdn.example", "media.example")
+    assert source.selectors.title == ".title"
+    assert source.record_id_pattern == r"/detail/(?P<record_id>\d+)"
+
+
+@pytest.mark.medium
+def test_missing_source_configuration_does_not_leak_environment_values(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Incomplete private configuration fails without printing supplied values."""
+    sentinel = "PRIVATE-SOURCE-HOST"
+    monkeypatch.setenv("DATABASE_URL", "mysql+pymysql://db/collector")
+    monkeypatch.setenv("SOURCE_A_BASE_URL", f"https://{sentinel}.example")
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(ValueError) as error:
+        load_source_config(load_settings(), "source_a")
+
+    assert sentinel not in str(error.value)

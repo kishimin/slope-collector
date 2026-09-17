@@ -22,6 +22,37 @@ The local `.env`, `.env.development`, and `.env.test` files are intentionally
 excluded from Git. Their committed `*.example` counterparts document the
 required variable names without real collection targets or credentials.
 
+Create the files used by the local API and Docker Compose. This script keeps an
+existing destination file instead of overwriting it:
+
+```powershell
+$environmentFiles = @(
+    @{ Source = ".env.example"; Destination = ".env" },
+    @{ Source = ".env.development.example"; Destination = ".env.development" }
+)
+
+foreach ($environmentFile in $environmentFiles) {
+    if (Test-Path -LiteralPath $environmentFile.Destination) {
+        Write-Host "Keeping existing $($environmentFile.Destination)"
+        continue
+    }
+
+    Copy-Item -LiteralPath $environmentFile.Source -Destination $environmentFile.Destination
+}
+```
+
+Before starting either environment, replace the placeholder local passwords in
+`.env.development`. Also set `.env`'s `DATABASE_URL` to a database reachable
+from the host. When using the Compose database published by this project, use
+port `3307` and the same database name, user, and password configured in
+`.env.development`.
+
+The application automatically loads `.env`; it does not automatically load
+`.env.test`. The committed `.env.test.example` is reserved for commands that
+explicitly load a separate test environment. The current test suite supplies
+its required settings through the test runner and does not require a local
+`.env.test` file.
+
 ## Run the API
 
 Start the API directly:

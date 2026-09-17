@@ -44,8 +44,16 @@ def test_settings_reject_missing_database_url(
 
 
 @pytest.mark.medium
-@pytest.mark.parametrize("database_url", ["", "not-a-database-url"])
-def test_settings_reject_invalid_database_url(
+@pytest.mark.parametrize(
+    "database_url",
+    [
+        "",
+        "not-a-database-url",
+        "mysql://db/collector",
+        "mysql+asyncmy://db/collector",
+    ],
+)
+def test_settings_reject_unusable_database_url(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
     database_url: str,

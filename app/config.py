@@ -32,12 +32,15 @@ class Settings(BaseSettings):
     @field_validator("database_url")
     @classmethod
     def validate_database_url(cls, value: SecretStr) -> SecretStr:
-        """Reject database URLs that cannot address MySQL."""
+        """Reject database URLs that cannot use the installed driver."""
         try:
-            MySQLDsn(value.get_secret_value())
+            database_url = MySQLDsn(value.get_secret_value())
         except ValidationError:
             message = "database URL must be a valid MySQL URL"
             raise ValueError(message) from None
+        if database_url.scheme != "mysql+pymysql":
+            message = "database URL must use mysql+pymysql"
+            raise ValueError(message)
         return value
 
     @model_validator(mode="after")

@@ -2,7 +2,7 @@
 
 from typing import Literal, Self
 
-from pydantic import SecretStr, model_validator
+from pydantic import MySQLDsn, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -20,6 +20,13 @@ class Settings(BaseSettings):
     debug: bool = False
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
     database_url: SecretStr
+
+    @field_validator("database_url")
+    @classmethod
+    def validate_database_url(cls, value: SecretStr) -> SecretStr:
+        """Reject database URLs that cannot address MySQL."""
+        MySQLDsn(value.get_secret_value())
+        return value
 
     @model_validator(mode="after")
     def reject_production_debug_mode(self) -> Self:

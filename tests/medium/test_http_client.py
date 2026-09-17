@@ -3,17 +3,25 @@
 import httpx
 import pytest
 
-from app.scraping.http_client import BoundedHttpClient, FetchPermanentError
+from app.scraping.http_client import (
+    BoundedHttpClient,
+    FetchPermanentError,
+    HttpLimits,
+)
 
 
-def client(transport: httpx.BaseTransport, *, max_bytes: int = 1024) -> BoundedHttpClient:
+def client(
+    transport: httpx.BaseTransport, *, max_bytes: int = 1024
+) -> BoundedHttpClient:
     """Create an anonymous bounded client."""
     return BoundedHttpClient(
         base_url="https://source.example",
         user_agent="slope-collector-test/1.0 contact@example.invalid",
-        connect_timeout_seconds=1,
-        response_timeout_seconds=2,
-        max_response_bytes=max_bytes,
+        limits=HttpLimits(
+            connect_timeout_seconds=1,
+            response_timeout_seconds=2,
+            max_response_bytes=max_bytes,
+        ),
         transport=transport,
     )
 
@@ -56,9 +64,11 @@ def test_client_rejects_unapproved_response_contracts(
         )
     )
 
-    with client(transport, max_bytes=16) as http_client:
-        with pytest.raises(FetchPermanentError):
-            http_client.get_html("/list")
+    with (
+        client(transport, max_bytes=16) as http_client,
+        pytest.raises(FetchPermanentError),
+    ):
+        http_client.get_html("/list")
 
 
 @pytest.mark.medium
@@ -73,8 +83,10 @@ def test_client_rejects_redirect_outside_approved_host_without_leaking_it() -> N
             request=request,
         )
 
-    with client(httpx.MockTransport(respond)) as http_client:
-        with pytest.raises(FetchPermanentError) as error:
-            http_client.get_html("/list")
+    with (
+        client(httpx.MockTransport(respond)) as http_client,
+        pytest.raises(FetchPermanentError) as error,
+    ):
+        http_client.get_html("/list")
 
     assert sentinel not in str(error.value)

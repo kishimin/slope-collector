@@ -1,0 +1,18 @@
+[Unit]
+Description=Slope Collector daily collection
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/opt/slope-collector/app/collector.py
+
+[Service]
+Type=oneshot
+User=slope-collector
+Group=slope-collector
+WorkingDirectory=/opt/slope-collector
+EnvironmentFile=/etc/slope-collector/slope-collector.env
+ExecStart=/opt/slope-collector/.venv/bin/python -m app.collector collect-daily
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict

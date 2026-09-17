@@ -20,10 +20,14 @@ dependencies = [
 dev = [
     "httpx>=0.28,<1",
     "mypy>=1,<2",
+    "pre-commit>=4,<5",
     "pytest>=9,<10",
     "pytest-cov>=7,<8",
     "ruff>=0.14,<1",
 ]
+
+[tool.uv]
+required-version = "==0.12.15"
 
 [tool.hatch.build.targets.wheel]
 packages = ["app"]
@@ -50,7 +54,7 @@ target-version = "py314"
 
 [tool.ruff.lint]
 select = ["ALL"]
-ignore = ["CPY001", "D203", "D213"]
+ignore = ["COM812", "CPY001", "D203", "D213"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["S101"]

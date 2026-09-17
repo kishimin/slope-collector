@@ -88,7 +88,6 @@ class SourceAdapter:
         title_element = self._required(soup, self._config.selectors.title)
         date_element = self._required(soup, self._config.selectors.published_at)
         author_element = self._required(soup, self._config.selectors.author)
-        entity_link = self._required(soup, self._config.selectors.entity_link)
         body_element = self._required(soup, self._config.selectors.body)
 
         title = unicodedata.normalize("NFC", title_element.get_text()).strip()
@@ -97,6 +96,7 @@ class SourceAdapter:
             message = "required text is invalid"
             raise ParseContractError(message)
 
+        entity_link = self._entity_link(soup, private_name)
         published_at = self._published_at(date_element.get_text().strip())
         entity_external_key = self._entity_id(entity_link)
         canonical_path = self._source_path(source_path)
@@ -135,6 +135,24 @@ class SourceAdapter:
         record_id = match.group("record_id")
         self._require_ascii_digits(record_id, "record ID")
         return record_id
+
+    def _entity_link(self, soup: BeautifulSoup, private_name: str) -> Tag:
+        candidates = [
+            element
+            for element in soup.select(self._config.selectors.entity_link)
+            if isinstance(element, Tag)
+        ]
+        matching = [
+            element
+            for element in candidates
+            if unicodedata.normalize("NFC", element.get_text()).strip() == private_name
+        ]
+        if len(matching) == 1:
+            return matching[0]
+        if len(candidates) == 1:
+            return candidates[0]
+        message = "entity link is missing or ambiguous"
+        raise ParseContractError(message)
 
     def _entity_id(self, link: Tag) -> str:
         href = link.get("href")

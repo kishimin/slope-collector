@@ -123,6 +123,28 @@ def test_detail_parser_removes_unapproved_link_destinations() -> None:
 
 
 @pytest.mark.small
+def test_detail_parser_matches_entity_link_to_author_text() -> None:
+    """A broad private selector resolves the link belonging to the article author."""
+    html = """
+    <nav><a class="author-link" href="/authors?entity=invalid">Other</a></nav>
+    <article>
+      <h1 class="title">Example title</h1>
+      <time class="date">2026-09-18 12:30</time>
+      <span class="author">Example author</span>
+      <a class="author-link" href="/authors?entity=7">Example author</a>
+      <div class="body"><p>Body</p></div>
+    </article>
+    """
+
+    record = SourceAdapter("source_a", source_config()).parse_detail(
+        html,
+        source_path="/detail/42",
+    )
+
+    assert record.entity_external_key == "7"
+
+
+@pytest.mark.small
 def test_detail_parser_rejects_missing_required_element() -> None:
     """Missing source contracts fail closed instead of saving guessed content."""
     with pytest.raises(ParseContractError, match="required element is missing"):

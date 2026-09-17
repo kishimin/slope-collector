@@ -98,6 +98,31 @@ def test_detail_parser_sanitizes_body_and_normalizes_assets() -> None:
 
 
 @pytest.mark.small
+def test_detail_parser_removes_unapproved_link_destinations() -> None:
+    """External body links retain their label without leaking destinations."""
+    html = """
+    <article>
+      <h1 class="title">Example title</h1>
+      <time class="date">2026-09-18 12:30</time>
+      <span class="author">Example author</span>
+      <a class="author-link" href="/authors?entity=7">Profile</a>
+      <div class="body">
+        <p><a href="https://outside.example/tracking">External reference</a></p>
+      </div>
+    </article>
+    """
+
+    record = SourceAdapter("source_a", source_config()).parse_detail(
+        html,
+        source_path="/detail/42",
+    )
+
+    assert "External reference" in record.body_html
+    assert "outside.example" not in record.body_html
+    assert "href=" not in record.body_html
+
+
+@pytest.mark.small
 def test_detail_parser_rejects_missing_required_element() -> None:
     """Missing source contracts fail closed instead of saving guessed content."""
     with pytest.raises(ParseContractError, match="required element is missing"):

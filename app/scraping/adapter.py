@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from contextlib import suppress
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 from urllib.parse import parse_qs, urlencode, urljoin, urlsplit, urlunsplit
@@ -196,7 +197,9 @@ class SourceAdapter:
             alt = element.get("alt")
             element.attrs.clear()
             if element.name == "a" and isinstance(href, str):
-                element["href"] = self._source_path(href)
+                # Keep the label, but never preserve an unapproved destination.
+                with suppress(ParseContractError):
+                    element["href"] = self._source_path(href)
             if element.name == "img" and isinstance(source, str):
                 element["src"] = self._asset_path(source)
                 if isinstance(alt, str):

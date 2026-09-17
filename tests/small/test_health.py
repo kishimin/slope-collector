@@ -1,6 +1,7 @@
 """Health endpoint contract tests."""
 
 import pytest
+from fastapi import status
 from httpx import ASGITransport, AsyncClient
 
 from app.main import app
@@ -21,5 +22,5 @@ async def test_health_returns_service_status() -> None:
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.get("/health")
 
-    assert response.status_code == 200
+    assert response.status_code == status.HTTP_200_OK
     assert response.json() == {"status": "ok"}

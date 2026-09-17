@@ -41,7 +41,9 @@ def test_list_parser_returns_unique_records_and_next_page() -> None:
     html = """
     <main>
       <article class="entry"><a class="detail-link" href="/detail/42">One</a></article>
-      <article class="entry"><a class="detail-link" href="/detail/42">Duplicate</a></article>
+      <article class="entry">
+        <a class="detail-link" href="/detail/42">Duplicate</a>
+      </article>
       <article class="entry"><a class="detail-link" href="/detail/43">Two</a></article>
       <a class="next" href="/list?page=2">Next</a>
     </main>
@@ -87,7 +89,9 @@ def test_detail_parser_sanitizes_body_and_normalizes_assets() -> None:
     assert "<script" not in record.body_html
     assert "onclick" not in record.body_html
     assert "not-safe" not in record.body_html
-    assert [(asset.source_path, asset.position, asset.alt_text) for asset in record.assets] == [
+    assert [
+        (asset.source_path, asset.position, asset.alt_text) for asset in record.assets
+    ] == [
         ("/one.jpg", 0, "One"),
         ("/two.jpg", 1, None),
     ]

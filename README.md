@@ -58,7 +58,7 @@ its required settings through the test runner and does not require a local
 Start the API directly:
 
 ```powershell
-uv run uvicorn app.main:app --reload
+uv run uvicorn app.main:app --reload --port 8080
 ```
 
 Start the API and MySQL 9.7.2 with Docker Compose:

@@ -37,6 +37,8 @@ def main(arguments: Sequence[str] | None = None) -> int:
     )
     settings = load_settings()
     logging.basicConfig(level=settings.log_level)
+    for logger_name in ("httpcore", "httpx"):
+        logging.getLogger(logger_name).setLevel(logging.WARNING)
     repository = SqlAlchemyCollectionRepository(create_session_factory(settings))
     result = collect_all(
         settings=settings,

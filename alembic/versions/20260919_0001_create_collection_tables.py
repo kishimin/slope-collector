@@ -47,7 +47,6 @@ def upgrade() -> None:
         "entities",
         sa.Column("id", identifier, primary_key=True, autoincrement=True),
         sa.Column("source_id", identifier, nullable=False),
-        sa.Column("external_key", sa.String(length=255), nullable=False),
         sa.Column("name", sa.String(length=255), nullable=False),
         sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.true()),
         sa.Column(
@@ -64,7 +63,6 @@ def upgrade() -> None:
         ),
         sa.ForeignKeyConstraint(["source_id"], ["sources.id"], ondelete="RESTRICT"),
         sa.UniqueConstraint("source_id", "name"),
-        sa.UniqueConstraint("source_id", "external_key"),
     )
     op.create_table(
         "records",

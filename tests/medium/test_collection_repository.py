@@ -45,3 +45,4 @@ def test_repository_saves_record_assets_once_in_one_checkpoint() -> None:
         assert [
             (asset.position, asset.source_url, asset.alt_text) for asset in assets
         ] == [(0, "/asset/1", "Image")]
+    engine.dispose()

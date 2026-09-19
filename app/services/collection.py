@@ -6,6 +6,7 @@ import random
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import TYPE_CHECKING, Protocol
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from app.config import load_source_config
 from app.scraping.adapter import ParseContractError, SourceAdapter
@@ -79,6 +80,7 @@ def collect_all(  # noqa: C901, PLR0912, PLR0913, PLR0915 - explicit workflow bo
         numbered_pages = "{page}" in config.list_path
         page_number = 0
         seen_pages: set[str] = set()
+        member_paths: set[str] = set()
         stop_at_checkpoint = False
 
         with BoundedHttpClient(
@@ -132,11 +134,75 @@ def collect_all(  # noqa: C901, PLR0912, PLR0913, PLR0915 - explicit workflow bo
                         if mode is CollectionMode.DAILY:
                             stop_at_checkpoint = True
                             break
+                    if record.entity_path:
+                        member_paths.add(record.entity_path)
                 if numbered_pages:
                     page_number += 1
                     page_path = config.list_path.format(page=page_number)
                 else:
                     page_path = page.next_path
+
+            if mode is CollectionMode.BACKFILL and not stop_at_checkpoint:
+                for member_path in sorted(member_paths):
+                    member_page_number = 0
+                    archive_page_path: str | None = member_path
+                    member_seen_pages: set[str] = set()
+                    member_seen_signatures: set[tuple[str, ...]] = set()
+                    while archive_page_path is not None:
+                        if archive_page_path in member_seen_pages:
+                            failed_records += 1
+                            break
+                        if len(member_seen_pages) >= settings.collector_max_pages:
+                            failed_records += 1
+                            break
+                        member_seen_pages.add(archive_page_path)
+                        try:
+                            archive_page = _fetch_list(
+                                get_html, adapter, archive_page_path
+                            )
+                        except ParseContractError:
+                            if member_page_number > 0:
+                                break
+                            break
+                        except FetchPermanentError, FetchTemporaryError:
+                            failed_records += 1
+                            break
+
+                        visited_pages += 1
+                        if not archive_page.records:
+                            break
+                        signature = tuple(
+                            reference.source_path for reference in archive_page.records
+                        )
+                        if signature in member_seen_signatures:
+                            break
+                        member_seen_signatures.add(signature)
+                        for reference in archive_page.records:
+                            try:
+                                record = _fetch_record(
+                                    get_html, adapter, reference.source_path
+                                )
+                                created = repository.persist(record)
+                            except (
+                                FetchPermanentError,
+                                FetchTemporaryError,
+                                ParseContractError,
+                            ):
+                                failed_records += 1
+                                continue
+
+                            if created:
+                                saved_records += 1
+                            else:
+                                skipped_records += 1
+                            if record.entity_path:
+                                member_paths.add(record.entity_path)
+                        member_page_number += 1
+                        archive_page_path = archive_page.next_path
+                        if archive_page_path is None and numbered_pages:
+                            archive_page_path = _numbered_page_path(
+                                member_path, member_page_number
+                            )
 
     return CollectionResult(
         saved_records=saved_records,
@@ -183,4 +249,14 @@ def request_delay_seconds(
     return (
         settings.collector_request_interval_seconds
         + settings.collector_request_jitter_seconds * random_value()
+    )
+
+
+def _numbered_page_path(path: str, page: int) -> str:
+    """Set a numbered page query while preserving member identity parameters."""
+    parsed = urlsplit(path)
+    query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+    query["page"] = str(page)
+    return urlunsplit(
+        (parsed.scheme, parsed.netloc, parsed.path, urlencode(query), parsed.fragment)
     )

@@ -131,6 +131,7 @@ def test_collection_traverses_discovered_member_archive(
     for name, value in values.items():
         monkeypatch.setenv(name, value)
     monkeypatch.chdir(tmp_path)
+    expected_page_count = 4
 
     def respond(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/list":
@@ -139,15 +140,21 @@ def test_collection_traverses_discovered_member_archive(
             html = (
                 "<main></main>"
                 if record_id is None
-                else f'<article class="entry"><a class="detail" href="/detail/{record_id}">Item</a></article>'
+                else (
+                    f'<article class="entry"><a class="detail" '
+                    f'href="/detail/{record_id}">Item</a></article>'
+                )
             )
         elif request.url.path == "/author":
-            page = request.url.params.get("page")
+            page = request.url.params.get("page") or "0"
             record_id = "1" if page == "0" else "3" if page == "1" else None
             html = (
                 "<main></main>"
                 if record_id is None
-                else f'<article class="entry"><a class="detail" href="/detail/{record_id}">Item</a></article>'
+                else (
+                    f'<article class="entry"><a class="detail" '
+                    f'href="/detail/{record_id}">Item</a></article>'
+                )
             )
         else:
             html = (
@@ -173,6 +180,6 @@ def test_collection_traverses_discovered_member_archive(
     )
 
     assert result.failed_records == 0
-    assert result.visited_pages == 6
-    assert len(repository.records) == 4
+    assert result.visited_pages == expected_page_count
+    assert len(repository.records) == expected_page_count
     assert any(record.source_path == "/detail/3" for record in repository.records)

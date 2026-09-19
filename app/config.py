@@ -147,6 +147,7 @@ class Settings(BaseSettings):
     collector_connect_timeout_seconds: float = 10
     collector_response_timeout_seconds: float = 30
     collector_max_response_bytes: int = 5_242_880
+    collector_max_pages: int = 500
 
     @field_validator("database_url")
     @classmethod

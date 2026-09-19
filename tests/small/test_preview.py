@@ -30,4 +30,5 @@ def test_preview_removes_destinations_and_redacts_private_hosts() -> None:
 
     assert "Reference" in markdown
     assert "source.example" not in markdown
+    assert "https://" not in markdown
     assert "](" not in markdown

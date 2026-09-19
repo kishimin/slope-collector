@@ -99,6 +99,11 @@ class SourceAdapter:
         entity_link = self._entity_link(soup, private_name)
         published_at = self._published_at(date_element.get_text().strip())
         entity_external_key = self._entity_id(entity_link)
+        entity_href = entity_link.get("href")
+        if not isinstance(entity_href, str):
+            message = "required element is missing"
+            raise ParseContractError(message)
+        entity_path = self._source_path(entity_href)
         canonical_path = self._source_path(source_path)
         external_key = self._record_id(canonical_path)
         assets = self._assets(body_element)
@@ -117,6 +122,7 @@ class SourceAdapter:
             source_path=canonical_path,
             published_at=published_at,
             assets=assets,
+            entity_path=entity_path,
         )
 
     @staticmethod

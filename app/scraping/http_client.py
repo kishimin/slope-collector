@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Self
 from urllib.parse import urljoin, urlsplit
@@ -9,7 +10,7 @@ from urllib.parse import urljoin, urlsplit
 import httpx
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
     from types import TracebackType
 
 MAX_REDIRECTS = 5
@@ -45,6 +46,7 @@ class BoundedHttpClient:
         user_agent: str,
         limits: HttpLimits,
         transport: httpx.BaseTransport | None = None,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         """Create a client with explicit transport and response bounds."""
         parsed = urlsplit(base_url)
@@ -58,6 +60,8 @@ class BoundedHttpClient:
         self._approved_host = parsed.hostname.lower()
         self._approved_port = parsed.port or 443
         self._max_response_bytes = limits.max_response_bytes
+        self._response_timeout_seconds = limits.response_timeout_seconds
+        self._clock = clock
         timeout = httpx.Timeout(
             limits.response_timeout_seconds,
             connect=limits.connect_timeout_seconds,
@@ -85,10 +89,13 @@ class BoundedHttpClient:
 
     def get_html(self, source_path: str) -> str:
         """Return one bounded HTML response from the approved source."""
+        deadline = self._clock() + self._response_timeout_seconds
         url = self._approved_url(source_path)
         for _redirect_count in range(MAX_REDIRECTS + 1):
+            self._raise_if_deadline_exceeded(deadline)
             try:
                 with self._client.stream("GET", url) as response:
+                    self._raise_if_deadline_exceeded(deadline)
                     if response.is_redirect:
                         location = response.headers.get("location")
                         if location is None:
@@ -101,7 +108,7 @@ class BoundedHttpClient:
                     if content_type.split(";", maxsplit=1)[0].strip() != "text/html":
                         message = "response media type is not HTML"
                         raise FetchPermanentError(message)
-                    content = self._read_bounded(response.iter_bytes())
+                    content = self._read_bounded(response.iter_bytes(), deadline)
                     return content.decode(
                         response.encoding or "utf-8", errors="replace"
                     )
@@ -139,11 +146,17 @@ class BoundedHttpClient:
             message = "source returned a permanent HTTP failure"
             raise FetchPermanentError(message)
 
-    def _read_bounded(self, chunks: Iterator[bytes]) -> bytes:
+    def _read_bounded(self, chunks: Iterator[bytes], deadline: float) -> bytes:
         content = bytearray()
         for chunk in chunks:
+            self._raise_if_deadline_exceeded(deadline)
             content.extend(chunk)
             if len(content) > self._max_response_bytes:
                 message = "source response exceeds the configured size limit"
                 raise FetchPermanentError(message)
         return bytes(content)
+
+    def _raise_if_deadline_exceeded(self, deadline: float) -> None:
+        if self._clock() >= deadline:
+            message = "source request timed out"
+            raise FetchTemporaryError(message)

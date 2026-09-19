@@ -92,10 +92,11 @@ def collect_all(  # noqa: C901, PLR0913 - dependencies stay explicit at the work
                 return client.get_html(path)
 
             while page_path is not None and not stop_at_checkpoint:
-                if (
-                    page_path in seen_pages
-                    or len(seen_pages) >= settings.collector_max_pages
-                ):
+                if page_path in seen_pages:
+                    failed_records += 1
+                    break
+                if len(seen_pages) >= settings.collector_max_pages:
+                    failed_records += 1
                     break
                 seen_pages.add(page_path)
                 try:

@@ -14,6 +14,8 @@ from pydantic import (
 )
 from pydantic_core import InitErrorDetails
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from soupsieve import SelectorSyntaxError
+from soupsieve import compile as compile_selector
 
 SourceKey = Literal["source_a", "source_b"]
 
@@ -30,6 +32,17 @@ class SourceSelectors(BaseModel):
     entity_link: str
     asset: str
     next_page: str
+
+    @field_validator("*")
+    @classmethod
+    def require_valid_selector(cls, value: str) -> str:
+        """Reject malformed private selectors before HTML parsing begins."""
+        try:
+            compile_selector(value)
+        except SelectorSyntaxError:
+            message = "source selector is invalid"
+            raise ValueError(message) from None
+        return value
 
 
 class SourceConfig(BaseModel):

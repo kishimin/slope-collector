@@ -18,6 +18,7 @@ class RecordingRepository:
     """Minimal persistence double for historical page traversal."""
 
     def __init__(self) -> None:
+        """Initialize the collected record list."""
         self.records: list[CollectedRecord] = []
 
     def persist(self, record: CollectedRecord) -> bool:
@@ -93,6 +94,7 @@ def test_collection_uses_numbered_pages_until_empty(
         transport=httpx.MockTransport(respond),
     )
 
-    assert result.saved_records == 2
+    expected_records = 2
+    assert result.saved_records == expected_records
     assert result.failed_records == 0
-    assert result.visited_pages == 2
+    assert result.visited_pages == expected_records

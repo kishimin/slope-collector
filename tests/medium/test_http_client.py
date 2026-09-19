@@ -90,3 +90,26 @@ def test_client_rejects_redirect_outside_approved_host_without_leaking_it() -> N
         http_client.get_html("/list")
 
     assert sentinel not in str(error.value)
+
+
+@pytest.mark.medium
+def test_client_rejects_redirect_to_unapproved_port() -> None:
+    """An approved hostname cannot expand the transport origin by port."""
+    calls = 0
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(
+            302,
+            headers={"location": "https://source.example:444/content"},
+            request=request,
+        )
+
+    with (
+        client(httpx.MockTransport(respond)) as http_client,
+        pytest.raises(FetchPermanentError),
+    ):
+        http_client.get_html("/list")
+
+    assert calls == 1

@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import argparse
 import logging
+import smtplib
 from typing import TYPE_CHECKING
 
 from app.config import load_settings
 from app.db.session import create_session_factory
 from app.repositories.collection import SqlAlchemyCollectionRepository
 from app.services.collection import CollectionMode, collect_all
+from app.services.notifications import notify_failures
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -41,6 +43,10 @@ def main(arguments: Sequence[str] | None = None) -> int:
         mode=mode,
         repository=repository,
     )
+    try:
+        notify_failures(settings, result)
+    except OSError, smtplib.SMTPException:
+        LOGGER.exception("collection failure notification could not be sent")
     LOGGER.info(
         "collection completed saved=%d skipped=%d failed=%d pages=%d",
         result.saved_records,

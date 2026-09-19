@@ -148,6 +148,12 @@ class Settings(BaseSettings):
     collector_response_timeout_seconds: float = 30
     collector_max_response_bytes: int = 5_242_880
     collector_max_pages: int = 500
+    mail_host: str = ""
+    mail_port: int = 587
+    mail_username: SecretStr = SecretStr("")
+    mail_password: SecretStr = SecretStr("")
+    mail_from: str = ""
+    mail_to: str = ""
 
     @field_validator("database_url")
     @classmethod

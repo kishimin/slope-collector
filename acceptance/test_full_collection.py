@@ -9,6 +9,8 @@ from app.config import load_settings
 from app.services.collection import CollectionMode, collect_all
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from app.scraping.domain import CollectedRecord
 
 
@@ -16,6 +18,7 @@ class MemoryRepository:
     """Observable persistence double for the operator collection story."""
 
     def __init__(self) -> None:
+        """Start with no persisted collection checkpoints."""
         self.records: dict[tuple[str, str, str], CollectedRecord] = {}
 
     def persist(self, record: CollectedRecord) -> bool:
@@ -60,12 +63,26 @@ def test_operator_can_backfill_every_page_and_resume_without_duplicates(
 
     def respond(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/list" and request.url.params.get("page") == "0":
-            html = '<article class="entry"><a class="detail-link" href="/detail/1">One</a></article><a class="next" href="/list?page=1">Next</a>'
+            html = (
+                '<article class="entry"><a class="detail-link" href="/detail/1">'
+                'One</a></article><a class="next" href="/list?page=1">Next</a>'
+            )
         elif request.url.path == "/list":
-            html = '<article class="entry"><a class="detail-link" href="/detail/2">Two</a></article>'
+            html = (
+                '<article class="entry"><a class="detail-link" href="/detail/2">'
+                "Two</a></article>"
+            )
         else:
             record_id = request.url.path.rsplit("/", maxsplit=1)[-1]
-            html = f'''<article><h1 class="title">Title {record_id}</h1><time class="date">2026-09-18 12:30</time><span class="author">Author</span><a class="author-link" href="/author?entity=7">Author</a><div class="body"><p>Body {record_id}</p><img src="https://cdn.example/{record_id}.jpg" alt="Image {record_id}"></div></article>'''
+            html = (
+                f'<article><h1 class="title">Title {record_id}</h1>'
+                '<time class="date">2026-09-18 12:30</time>'
+                '<span class="author">Author</span>'
+                '<a class="author-link" href="/author?entity=7">Author</a>'
+                f'<div class="body"><p>Body {record_id}</p>'
+                f'<img src="https://cdn.example/{record_id}.jpg" '
+                f'alt="Image {record_id}"></div></article>'
+            )
         return httpx.Response(
             200,
             headers={"content-type": "text/html; charset=utf-8"},
@@ -91,9 +108,10 @@ def test_operator_can_backfill_every_page_and_resume_without_duplicates(
         transport=transport,
     )
 
-    assert first.saved_records == 2
+    expected_records = 2
+    assert first.saved_records == expected_records
     assert first.skipped_records == 0
     assert second.saved_records == 0
-    assert second.skipped_records == 2
-    assert len(repository.records) == 2
+    assert second.skipped_records == expected_records
+    assert len(repository.records) == expected_records
     assert all(record.assets for record in repository.records.values())

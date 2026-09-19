@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import random
 from dataclasses import dataclass
 from enum import StrEnum
@@ -26,6 +27,7 @@ if TYPE_CHECKING:
     from app.scraping.domain import CollectedRecord, ListPage
 
 MAX_ATTEMPTS = 3
+LOGGER = logging.getLogger(__name__)
 
 
 class CollectionMode(StrEnum):
@@ -91,8 +93,12 @@ def collect_all(  # noqa: C901, PLR0912, PLR0913, PLR0915 - explicit workflow bo
         ) as client:
 
             def get_html(path: str) -> str:
-                if sleep is not None:
-                    sleep(request_delay_seconds(settings, random_value=random_value))
+                wait_before_request(
+                    settings,
+                    path,
+                    sleep=sleep,
+                    random_value=random_value,
+                )
                 return client.get_html(path)
 
             while page_path is not None and not stop_at_checkpoint:
@@ -250,6 +256,25 @@ def request_delay_seconds(
         settings.collector_request_interval_seconds
         + settings.collector_request_jitter_seconds * random_value()
     )
+
+
+def wait_before_request(
+    settings: Settings,
+    path: str,
+    *,
+    sleep: Callable[[float], None] | None,
+    random_value: Callable[[], float],
+) -> None:
+    """Pause before one source request and report it outside production."""
+    delay_seconds = request_delay_seconds(settings, random_value=random_value)
+    if settings.environment != "production":
+        LOGGER.info(
+            "waiting before source request path=%s delay_seconds=%.2f",
+            path,
+            delay_seconds,
+        )
+    if sleep is not None:
+        sleep(delay_seconds)
 
 
 def _numbered_page_path(path: str, page: int) -> str:

@@ -6,12 +6,13 @@ from sqlalchemy import MetaData, engine_from_config, pool
 
 from alembic import context
 from app.config import load_settings
+from app.models.collection import Base
 
 config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-target_metadata: MetaData | None = None
+target_metadata: MetaData = Base.metadata
 
 
 def get_database_url() -> str:

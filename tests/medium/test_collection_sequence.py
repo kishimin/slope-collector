@@ -98,3 +98,4 @@ def test_collection_uses_numbered_pages_until_empty(
     assert result.saved_records == expected_records
     assert result.failed_records == 0
     assert result.visited_pages == expected_records
+    assert repository.records[0].entity_path == "/author?entity=7"

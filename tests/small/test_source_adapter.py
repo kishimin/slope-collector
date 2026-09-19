@@ -59,6 +59,19 @@ def test_list_parser_returns_unique_records_and_next_page() -> None:
 
 
 @pytest.mark.small
+def test_list_parser_rejects_paths_outside_detail_template() -> None:
+    """A matching identifier cannot widen the approved detail-path boundary."""
+    html = """
+    <main><article class="entry">
+      <a class="detail-link" href="/unapproved/detail/42">Read</a>
+    </article></main>
+    """
+
+    with pytest.raises(ParseContractError, match="detail path is invalid"):
+        SourceAdapter("source_a", source_config()).parse_list(html)
+
+
+@pytest.mark.small
 def test_detail_parser_sanitizes_body_and_normalizes_assets() -> None:
     """Detail parsing keeps useful content while removing executable markup."""
     html = """
@@ -95,6 +108,31 @@ def test_detail_parser_sanitizes_body_and_normalizes_assets() -> None:
         ("/one.jpg", 0, "One"),
         ("/two.jpg", 1, None),
     ]
+
+
+@pytest.mark.small
+def test_detail_parser_removes_nested_disallowed_elements() -> None:
+    """Removing a parent also safely skips its detached descendants."""
+    html = """
+    <article>
+      <h1 class="title">Example title</h1>
+      <time class="date">2026-09-18 12:30</time>
+      <span class="author">Example author</span>
+      <a class="author-link" href="/authors?entity=7">Example author</a>
+      <div class="body">
+        <form><custom-element>Discarded</custom-element></form>
+        <p>Retained</p>
+      </div>
+    </article>
+    """
+
+    record = SourceAdapter("source_a", source_config()).parse_detail(
+        html,
+        source_path="/detail/42",
+    )
+
+    assert "Discarded" not in record.body_html
+    assert "Retained" in record.body_html
 
 
 @pytest.mark.small

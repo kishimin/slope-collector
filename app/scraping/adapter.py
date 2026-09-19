@@ -134,6 +134,16 @@ class SourceAdapter:
             raise ParseContractError(message)
         record_id = match.group("record_id")
         self._require_ascii_digits(record_id, "record ID")
+        try:
+            expected_path = self._source_path(
+                self._config.detail_path.format(record_id=record_id)
+            )
+        except KeyError, ValueError:
+            message = "detail path is invalid"
+            raise ParseContractError(message) from None
+        if source_path != expected_path:
+            message = "detail path is invalid"
+            raise ParseContractError(message)
         return record_id
 
     def _entity_link(self, soup: BeautifulSoup, private_name: str) -> Tag:
@@ -204,6 +214,8 @@ class SourceAdapter:
     def _sanitize_body(self, body: Tag) -> str:
         fragment = BeautifulSoup(str(body), "html.parser")
         for element in list(fragment.find_all()):
+            if element.parent is None:
+                continue
             if element.name in REMOVED_ELEMENTS:
                 element.decompose()
                 continue

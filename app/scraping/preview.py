@@ -112,7 +112,7 @@ def _render_markdown(
         markdown = re.sub(
             re.escape(host), "[private-source]", markdown, flags=re.IGNORECASE
         )
-    return markdown
+    return re.sub(r"https?://\S+", "[external-link]", markdown)
 
 
 def main() -> int:

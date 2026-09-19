@@ -51,7 +51,7 @@ class CollectionResult:
     visited_pages: int = 0
 
 
-def collect_all(  # noqa: C901, PLR0913 - dependencies stay explicit at the workflow boundary.
+def collect_all(  # noqa: C901, PLR0912, PLR0913, PLR0915 - explicit workflow boundary.
     *,
     settings: Settings,
     source_keys: tuple[SourceKey, ...],
@@ -76,6 +76,8 @@ def collect_all(  # noqa: C901, PLR0913 - dependencies stay explicit at the work
             max_response_bytes=settings.collector_max_response_bytes,
         )
         page_path: str | None = config.list_path.format(page=0)
+        numbered_pages = "{page}" in config.list_path
+        page_number = 0
         seen_pages: set[str] = set()
         stop_at_checkpoint = False
 
@@ -101,7 +103,12 @@ def collect_all(  # noqa: C901, PLR0913 - dependencies stay explicit at the work
                 seen_pages.add(page_path)
                 try:
                     page = _fetch_list(get_html, adapter, page_path)
-                except FetchPermanentError, FetchTemporaryError, ParseContractError:
+                except ParseContractError:
+                    if numbered_pages and page_number > 0:
+                        break
+                    failed_records += 1
+                    break
+                except FetchPermanentError, FetchTemporaryError:
                     failed_records += 1
                     break
 
@@ -125,7 +132,11 @@ def collect_all(  # noqa: C901, PLR0913 - dependencies stay explicit at the work
                         if mode is CollectionMode.DAILY:
                             stop_at_checkpoint = True
                             break
-                page_path = page.next_path
+                if numbered_pages:
+                    page_number += 1
+                    page_path = config.list_path.format(page=page_number)
+                else:
+                    page_path = page.next_path
 
     return CollectionResult(
         saved_records=saved_records,

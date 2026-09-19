@@ -148,6 +148,8 @@ class Settings(BaseSettings):
     collector_response_timeout_seconds: float = 30
     collector_max_response_bytes: int = 5_242_880
     collector_max_pages: int = 500
+    collector_request_interval_seconds: float = 3
+    collector_request_jitter_seconds: float = 1
     mail_host: str = ""
     mail_port: int = 587
     mail_username: SecretStr = SecretStr("")

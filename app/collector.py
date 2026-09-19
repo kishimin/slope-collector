@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import logging
 import smtplib
+import time
 from typing import TYPE_CHECKING
 
 from app.config import load_settings
@@ -42,6 +43,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
         source_keys=SOURCE_KEYS,
         mode=mode,
         repository=repository,
+        sleep=time.sleep,
     )
     try:
         notify_failures(settings, result)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import random
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import TYPE_CHECKING, Protocol
@@ -50,13 +51,15 @@ class CollectionResult:
     visited_pages: int = 0
 
 
-def collect_all(
+def collect_all(  # noqa: C901, PLR0913 - dependencies stay explicit at the workflow boundary.
     *,
     settings: Settings,
     source_keys: tuple[SourceKey, ...],
     mode: CollectionMode,
     repository: CollectionRepository,
     transport: httpx.BaseTransport | None = None,
+    sleep: Callable[[float], None] | None = None,
+    random_value: Callable[[], float] = random.random,
 ) -> CollectionResult:
     """Collect all configured source pages, using persistence as the checkpoint."""
     saved_records = 0
@@ -82,6 +85,12 @@ def collect_all(
             limits=limits,
             transport=transport,
         ) as client:
+
+            def get_html(path: str) -> str:
+                if sleep is not None:
+                    sleep(request_delay_seconds(settings, random_value=random_value))
+                return client.get_html(path)
+
             while page_path is not None and not stop_at_checkpoint:
                 if (
                     page_path in seen_pages
@@ -90,7 +99,7 @@ def collect_all(
                     break
                 seen_pages.add(page_path)
                 try:
-                    page = _fetch_list(client, adapter, page_path)
+                    page = _fetch_list(get_html, adapter, page_path)
                 except FetchPermanentError, FetchTemporaryError, ParseContractError:
                     failed_records += 1
                     break
@@ -98,7 +107,7 @@ def collect_all(
                 visited_pages += 1
                 for reference in page.records:
                     try:
-                        record = _fetch_record(client, adapter, reference.source_path)
+                        record = _fetch_record(get_html, adapter, reference.source_path)
                         created = repository.persist(record)
                     except (
                         FetchPermanentError,
@@ -126,22 +135,20 @@ def collect_all(
 
 
 def _fetch_list(
-    client: BoundedHttpClient,
+    get_html: Callable[[str], str],
     adapter: SourceAdapter,
     page_path: str,
 ) -> ListPage:
-    return _retry(lambda: adapter.parse_list(client.get_html(page_path)))
+    return _retry(lambda: adapter.parse_list(get_html(page_path)))
 
 
 def _fetch_record(
-    client: BoundedHttpClient,
+    get_html: Callable[[str], str],
     adapter: SourceAdapter,
     source_path: str,
 ) -> CollectedRecord:
     return _retry(
-        lambda: adapter.parse_detail(
-            client.get_html(source_path), source_path=source_path
-        )
+        lambda: adapter.parse_detail(get_html(source_path), source_path=source_path)
     )
 
 
@@ -155,3 +162,13 @@ def _retry[T](operation: Callable[[], T]) -> T:
                 raise
     message = "retry attempts are exhausted"
     raise RuntimeError(message)
+
+
+def request_delay_seconds(
+    settings: Settings, *, random_value: Callable[[], float]
+) -> float:
+    """Return a bounded randomized pause before one source request."""
+    return (
+        settings.collector_request_interval_seconds
+        + settings.collector_request_jitter_seconds * random_value()
+    )

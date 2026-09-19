@@ -170,3 +170,37 @@ SOURCE_A_PUBLISHED_AT_FORMAT=%Y-%m-%d %H:%M
     source = load_source_config(load_settings(), "source_a")
 
     assert str(source.base_url) == "https://source.example/"
+
+
+@pytest.mark.medium
+def test_invalid_source_selector_does_not_leak_selector_value(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Invalid private selectors fail without exposing their raw value."""
+    dotenv = r"""
+DATABASE_URL=mysql+pymysql://db/collector
+SOURCE_A_BASE_URL=https://source.example
+SOURCE_A_LIST_PATH=/list?page={page}
+SOURCE_A_DETAIL_PATH=/detail/{record_id}
+SOURCE_A_ALLOWED_CDN_HOSTS=cdn.example
+SOURCE_A_LIST_ITEM_SELECTOR=[
+SOURCE_A_DETAIL_LINK_SELECTOR=.detail
+SOURCE_A_TITLE_SELECTOR=.title
+SOURCE_A_BODY_SELECTOR=.body
+SOURCE_A_DATE_SELECTOR=.date
+SOURCE_A_AUTHOR_SELECTOR=.author
+SOURCE_A_ENTITY_LINK_SELECTOR=.author-link
+SOURCE_A_ASSET_SELECTOR=.body img
+SOURCE_A_NEXT_PAGE_SELECTOR=.next
+SOURCE_A_RECORD_ID_PATTERN=/detail/(?P<record_id>\d+)
+SOURCE_A_ENTITY_ID_QUERY_PARAM=entity
+SOURCE_A_PUBLISHED_AT_FORMAT=%Y-%m-%d %H:%M
+""".lstrip()
+    (tmp_path / ".env").write_text(dotenv, encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(ValueError, match="invalid configuration") as error:
+        load_source_config(load_settings(), "source_a")
+
+    assert "[" not in str(error.value)

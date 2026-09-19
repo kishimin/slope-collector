@@ -56,6 +56,7 @@ class BoundedHttpClient:
             raise ValueError(message)
         self._base_url = base_url
         self._approved_host = parsed.hostname.lower()
+        self._approved_port = parsed.port or 443
         self._max_response_bytes = limits.max_response_bytes
         timeout = httpx.Timeout(
             limits.response_timeout_seconds,
@@ -117,7 +118,12 @@ class BoundedHttpClient:
         resolved = urljoin(current_url or self._base_url, value)
         parsed = urlsplit(resolved)
         host = parsed.hostname.lower() if parsed.hostname else ""
-        if parsed.scheme != "https" or host != self._approved_host:
+        port = parsed.port or 443
+        if (
+            parsed.scheme != "https"
+            or host != self._approved_host
+            or port != self._approved_port
+        ):
             message = "request leaves the approved host boundary"
             raise FetchPermanentError(message)
         return resolved

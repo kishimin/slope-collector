@@ -1,17 +1,29 @@
 """Bounded source HTTP client contract tests."""
 
+from __future__ import annotations
+
+import time
+from typing import TYPE_CHECKING
+
 import httpx
 import pytest
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 from app.scraping.http_client import (
     BoundedHttpClient,
     FetchPermanentError,
+    FetchTemporaryError,
     HttpLimits,
 )
 
 
 def client(
-    transport: httpx.BaseTransport, *, max_bytes: int = 1024
+    transport: httpx.BaseTransport,
+    *,
+    max_bytes: int = 1024,
+    clock: Callable[[], float] = time.monotonic,
 ) -> BoundedHttpClient:
     """Create an anonymous bounded client."""
     return BoundedHttpClient(
@@ -23,6 +35,7 @@ def client(
             max_response_bytes=max_bytes,
         ),
         transport=transport,
+        clock=clock,
     )
 
 
@@ -113,3 +126,29 @@ def test_client_rejects_redirect_to_unapproved_port() -> None:
         http_client.get_html("/list")
 
     assert calls == 1
+
+
+@pytest.mark.medium
+def test_client_enforces_total_response_deadline() -> None:
+    """Periodic small chunks cannot extend the whole-response deadline."""
+    now = 0.0
+
+    def clock() -> float:
+        nonlocal now
+        now += 0.8
+        return now
+
+    transport = httpx.MockTransport(
+        lambda request: httpx.Response(
+            200,
+            headers={"content-type": "text/html"},
+            content=b"small chunks",
+            request=request,
+        )
+    )
+
+    with (
+        client(transport, clock=clock) as http_client,
+        pytest.raises(FetchTemporaryError),
+    ):
+        http_client.get_html("/list")

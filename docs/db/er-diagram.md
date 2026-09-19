@@ -39,6 +39,7 @@ erDiagram
         BIGINT record_id FK,UK "UNSIGNED, NOT NULL"
         VARCHAR source_url "VARCHAR(2048), NOT NULL"
         INT position UK "UNSIGNED, NOT NULL"
+        VARCHAR alt_text "VARCHAR(500), NULL"
         DATETIME created_at "NOT NULL, DEFAULT CURRENT_TIMESTAMP"
         DATETIME updated_at "NOT NULL, DEFAULT CURRENT_TIMESTAMP, ON UPDATE CURRENT_TIMESTAMP"
     }
@@ -69,3 +70,4 @@ erDiagram
 - `created_at` defaults to `CURRENT_TIMESTAMP`.
 - `updated_at` defaults to `CURRENT_TIMESTAMP` and is automatically updated with `ON UPDATE CURRENT_TIMESTAMP`.
 - `records.published_at` is source data and has no default value.
+- `assets.alt_text` preserves approved image alternative text when supplied.

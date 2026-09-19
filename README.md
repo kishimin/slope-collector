@@ -87,6 +87,27 @@ The preview intentionally omits source hosts, source URLs, selectors, and image
 URLs. `scrape-preview.md` is not ignored automatically; inspect it locally and
 do not stage or commit it.
 
+## Collect records
+
+Create the schema once, then run a manual backfill. Both commands read only
+local configuration and are intentionally separate from the API process:
+
+```powershell
+uv run alembic upgrade head
+uv run python -m app.collector collect-backfill
+```
+
+The backfill follows every configured list page and saves each record and its
+assets in an individual transaction. Re-running it skips existing records.
+For scheduled incremental collection, use the supplied systemd unit's command:
+
+```powershell
+uv run python -m app.collector collect-daily
+```
+
+Do not run the migration or collection command against a database or source
+unless that environment is intended for persistent collection.
+
 ## Verification
 
 | Purpose | Command |
@@ -115,6 +136,5 @@ app/
 └── services/     # Application workflows
 ```
 
-Alembic is initialized under `alembic/`, but the initial migration is deferred
-until the SQLAlchemy models exist. The units under `deploy/systemd/` are also
-templates: the service remains inactive until `app.collector` is implemented.
+Alembic contains the initial collection schema. The systemd units run the
+`collect-daily` command as a separate process rather than inside FastAPI.

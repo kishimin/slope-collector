@@ -39,6 +39,8 @@ class SqlAlchemyCollectionRepository:
                 )
             )
             if entity is None:
+                entity = _find_legacy_entity(session, source.id, record)
+            if entity is None:
                 entity = Entity(
                     source_id=source.id,
                     external_key=record.entity_external_key,
@@ -46,8 +48,13 @@ class SqlAlchemyCollectionRepository:
                 )
                 session.add(entity)
                 session.flush()
-            elif entity.name != record.private_name:
+            elif (
+                entity.external_key != record.entity_external_key
+                or entity.name != record.private_name
+            ):
+                entity.external_key = record.entity_external_key
                 entity.name = record.private_name
+                session.flush()
 
             exists = session.scalar(
                 select(Record.id).where(
@@ -80,3 +87,43 @@ class SqlAlchemyCollectionRepository:
                 ]
             )
             return True
+
+
+def _find_legacy_entity(
+    session: Session, source_id: int, record: CollectedRecord
+) -> Entity | None:
+    """Claim one pre-identity row using the strongest available old checkpoint."""
+    legacy = Entity.external_key.startswith("legacy:")
+    matching_record_and_name = session.scalars(
+        select(Entity)
+        .join(Record)
+        .where(
+            Entity.source_id == source_id,
+            legacy,
+            Entity.name == record.private_name,
+            Record.external_key == record.external_key,
+        )
+    ).all()
+    if len(matching_record_and_name) == 1:
+        return matching_record_and_name[0]
+
+    matching_record = session.scalars(
+        select(Entity)
+        .join(Record)
+        .where(
+            Entity.source_id == source_id,
+            legacy,
+            Record.external_key == record.external_key,
+        )
+    ).all()
+    if len(matching_record) == 1:
+        return matching_record[0]
+
+    matching_name = session.scalars(
+        select(Entity).where(
+            Entity.source_id == source_id,
+            legacy,
+            Entity.name == record.private_name,
+        )
+    ).all()
+    return matching_name[0] if len(matching_name) == 1 else None

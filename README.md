@@ -70,6 +70,44 @@ docker compose --env-file .env.development up --build
 The API is available on port `8080`. Docker publishes MySQL on port `3307` so
 it does not conflict with a host MySQL service on the default port.
 
+## Verify source adapters locally
+
+Private source URLs, paths, selectors, identifier patterns, and approved asset
+hosts belong only in the untracked `.env` file. Their committed example values
+must remain empty.
+
+Fetch and parse one article from each configured source into a local Markdown
+preview:
+
+```powershell
+uv run python -m app.scraping.preview --output scrape-preview.md
+```
+
+The preview intentionally omits source hosts, source URLs, selectors, and image
+URLs. `scrape-preview.md` is not ignored automatically; inspect it locally and
+do not stage or commit it.
+
+## Collect records
+
+Create the schema once, then run a manual backfill. Both commands read only
+local configuration and are intentionally separate from the API process:
+
+```powershell
+uv run alembic upgrade head
+uv run python -m app.collector collect-backfill
+```
+
+The backfill follows every configured list page and saves each record and its
+assets in an individual transaction. Re-running it skips existing records.
+For scheduled incremental collection, use the supplied systemd unit's command:
+
+```powershell
+uv run python -m app.collector collect-daily
+```
+
+Do not run the migration or collection command against a database or source
+unless that environment is intended for persistent collection.
+
 ## Verification
 
 | Purpose | Command |
@@ -98,6 +136,5 @@ app/
 └── services/     # Application workflows
 ```
 
-Alembic is initialized under `alembic/`, but the initial migration is deferred
-until the SQLAlchemy models exist. The units under `deploy/systemd/` are also
-templates: the service remains inactive until `app.collector` is implemented.
+Alembic contains the initial collection schema. The systemd units run the
+`collect-daily` command as a separate process rather than inside FastAPI.

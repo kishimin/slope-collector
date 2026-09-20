@@ -167,8 +167,8 @@ def collect_all(  # noqa: C901, PLR0912, PLR0913, PLR0915 - explicit workflow bo
                                 get_html, adapter, archive_page_path
                             )
                         except ParseContractError:
-                            if member_page_number > 0:
-                                break
+                            if member_page_number == 0:
+                                failed_records += 1
                             break
                         except FetchPermanentError, FetchTemporaryError:
                             failed_records += 1

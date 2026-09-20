@@ -70,6 +70,13 @@ def test_collection_uses_numbered_pages_until_empty(
                     f'href="/detail/{record_id}">One</a></article>'
                     '<a class="next" href="/list?page=0">Next</a>'
                 )
+        elif request.url.path == "/author":
+            html = (
+                '<article class="entry"><a class="detail" href="/detail/1">'
+                "One</a></article>"
+                if request.url.params.get("page") is None
+                else "<main></main>"
+            )
         else:
             html = (
                 '<h1 class="title">Title</h1><time class="date">'
@@ -94,7 +101,7 @@ def test_collection_uses_numbered_pages_until_empty(
         transport=httpx.MockTransport(respond),
     )
 
-    expected_records = 2
+    expected_records = 3
     assert result.saved_records == expected_records
     assert result.failed_records == 0
     assert result.visited_pages == expected_records

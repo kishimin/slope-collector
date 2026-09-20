@@ -16,6 +16,8 @@ Branch names use `{type}/{issue-number}-{short-description}`.
 
 The description uses lowercase kebab-case and describes the intended outcome rather than an implementation detail.
 
+Documentation-only work without a tracked issue may use `docs/{short-description}`. The pull request must explain why no issue was created.
+
 | Type | Purpose |
 | --- | --- |
 | `feature/` | User-facing or domain behavior |

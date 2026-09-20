@@ -42,10 +42,10 @@ def upgrade() -> None:
             existing_type=sa.String(length=255),
             nullable=False,
         )
-        batch.drop_constraint("source_id", type_="unique")
         batch.create_unique_constraint(
             "uq_entities_source_external_key", ("source_id", "external_key")
         )
+        batch.drop_constraint("source_id", type_="unique")
 
 
 def downgrade() -> None:

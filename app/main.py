@@ -2,7 +2,7 @@
 
 from typing import TYPE_CHECKING
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -62,7 +62,11 @@ def create_app(
             exc.detail
             if isinstance(exc.detail, dict)
             else {
-                "code": "NOT_FOUND" if exc.status_code == 404 else "BAD_REQUEST",
+                "code": (
+                    "NOT_FOUND"
+                    if exc.status_code == status.HTTP_404_NOT_FOUND
+                    else "BAD_REQUEST"
+                ),
                 "message": str(exc.detail),
             }
         )

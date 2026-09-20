@@ -2,7 +2,9 @@
 
 from typing import TYPE_CHECKING
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 
 from app.api.health import router as health_router
 from app.api.records import create_records_router
@@ -28,6 +30,45 @@ def create_app(
         openapi_url="/openapi.json" if publish_api_docs else None,
     )
     application.include_router(health_router)
+
+    @application.exception_handler(RequestValidationError)
+    async def validation_error_handler(
+        _request: Request, exc: RequestValidationError
+    ) -> JSONResponse:
+        errors = []
+        for error in exc.errors():
+            location = error.get("loc", ())
+            field = next(
+                (item for item in reversed(location) if isinstance(item, str)), None
+            )
+            errors.append(
+                {"field": field, "message": error.get("msg", "Invalid value.")}
+            )
+        return JSONResponse(
+            status_code=422,
+            content={
+                "code": "VALIDATION_ERROR",
+                "message": "Request validation failed.",
+                "errors": errors,
+            },
+        )
+
+    @application.exception_handler(HTTPException)
+    async def http_error_handler(_request: Request, exc: HTTPException) -> JSONResponse:
+        content = (
+            exc.detail
+            if isinstance(exc.detail, dict)
+            else {
+                "code": "BAD_REQUEST",
+                "message": str(exc.detail),
+            }
+        )
+        return JSONResponse(
+            status_code=exc.status_code,
+            content=content,
+            headers=exc.headers,
+        )
+
     if settings.environment == "development":
         application.include_router(
             create_records_router(sessions or create_session_factory(settings))

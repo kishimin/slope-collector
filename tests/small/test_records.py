@@ -59,11 +59,13 @@ async def test_development_app_lists_stored_records() -> None:
         "records": [
             {
                 "id": 1,
-                "entity_name": "Example author",
+                "entity_id": 1,
                 "title": "Stored example",
+                "source_url": "/record/example-1",
                 "published_at": "2026-09-19T00:00:00Z",
             }
-        ]
+        ],
+        "pagination": {"limit": 20, "offset": 0, "total": 1},
     }
     engine.dispose()
 

@@ -328,5 +328,6 @@ def test_collection_reports_explicit_entity_archive_parse_failure(
         transport=httpx.MockTransport(respond),
     )
 
-    assert result.saved_records == 2
+    expected_saved_records = 2
+    assert result.saved_records == expected_saved_records
     assert result.failed_records == 1

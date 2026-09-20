@@ -152,6 +152,7 @@ def collect_all(  # noqa: C901, PLR0912, PLR0913, PLR0915 - explicit workflow bo
                 for member_path in sorted(member_paths):
                     member_page_number = 0
                     archive_page_path: str | None = member_path
+                    archive_page_is_probe = False
                     member_seen_pages: set[str] = set()
                     member_seen_signatures: set[tuple[str, ...]] = set()
                     while archive_page_path is not None:
@@ -167,7 +168,7 @@ def collect_all(  # noqa: C901, PLR0912, PLR0913, PLR0915 - explicit workflow bo
                                 get_html, adapter, archive_page_path
                             )
                         except ParseContractError:
-                            if member_page_number == 0:
+                            if not archive_page_is_probe:
                                 failed_records += 1
                             break
                         except FetchPermanentError, FetchTemporaryError:
@@ -205,10 +206,12 @@ def collect_all(  # noqa: C901, PLR0912, PLR0913, PLR0915 - explicit workflow bo
                                 member_paths.add(record.entity_path)
                         member_page_number += 1
                         archive_page_path = archive_page.next_path
+                        archive_page_is_probe = False
                         if archive_page_path is None and numbered_pages:
                             archive_page_path = _numbered_page_path(
                                 member_path, member_page_number
                             )
+                            archive_page_is_probe = True
 
     return CollectionResult(
         saved_records=saved_records,

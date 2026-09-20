@@ -1,5 +1,6 @@
 """Database checkpoint contract tests."""
 
+from dataclasses import replace
 from datetime import UTC, datetime
 
 import pytest
@@ -45,4 +46,34 @@ def test_repository_saves_record_assets_once_in_one_checkpoint() -> None:
         assert [
             (asset.position, asset.source_url, asset.alt_text) for asset in assets
         ] == [(0, "/asset/1", "Image")]
+    engine.dispose()
+
+
+@pytest.mark.medium
+def test_repository_uses_source_entity_identifier_for_checkpoint() -> None:
+    """Display-name collisions and changes preserve distinct stable identities."""
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    sessions = sessionmaker(engine)
+    repository = SqlAlchemyCollectionRepository(sessions)
+    first = collected_record()
+    same_name = replace(
+        first,
+        entity_external_key="8",
+        external_key="43",
+        source_path="/detail/43",
+    )
+    renamed = replace(first, private_name="Updated author")
+
+    assert repository.persist(first) is True
+    assert repository.persist(same_name) is True
+    assert repository.persist(renamed) is False
+
+    with sessions() as session:
+        entities = session.scalars(select(Entity).order_by(Entity.external_key)).all()
+        assert [(entity.external_key, entity.name) for entity in entities] == [
+            ("7", "Updated author"),
+            ("8", "Example author"),
+        ]
+        assert len(session.scalars(select(Record)).all()) == 2
     engine.dispose()

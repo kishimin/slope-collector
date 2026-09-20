@@ -78,3 +78,45 @@ def test_repository_uses_source_entity_identifier_for_checkpoint() -> None:
         ]
         assert len(session.scalars(select(Record)).all()) == expected_record_count
     engine.dispose()
+
+
+@pytest.mark.medium
+def test_repository_claims_migrated_entity_without_duplicate() -> None:
+    """The first collection after upgrade preserves its existing checkpoint."""
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    sessions = sessionmaker(engine)
+    first = collected_record()
+    with sessions.begin() as session:
+        source = Source(name=first.source_key)
+        session.add(source)
+        session.flush()
+        entity = Entity(
+            source_id=source.id,
+            external_key="legacy:1",
+            name=first.private_name,
+        )
+        session.add(entity)
+        session.flush()
+        session.add(
+            Record(
+                entity_id=entity.id,
+                external_key=first.external_key,
+                title=first.title,
+                body=first.body_html,
+                source_url=first.source_path,
+                published_at=first.published_at,
+            )
+        )
+
+    repository = SqlAlchemyCollectionRepository(sessions)
+
+    assert repository.persist(first) is False
+    with sessions() as session:
+        entities = session.scalars(select(Entity)).all()
+        records = session.scalars(select(Record)).all()
+        assert [(entity.external_key, entity.name) for entity in entities] == [
+            ("7", "Example author")
+        ]
+        assert len(records) == 1
+    engine.dispose()

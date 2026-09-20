@@ -56,13 +56,25 @@ class SqlAlchemyCollectionRepository:
                 entity.name = record.private_name
                 session.flush()
 
-            exists = session.scalar(
-                select(Record.id).where(
+            existing_record = session.scalar(
+                select(Record).where(
                     Record.entity_id == entity.id,
                     Record.external_key == record.external_key,
                 )
             )
-            if exists is not None:
+            if existing_record is not None:
+                return False
+
+            legacy_record = _find_legacy_record(session, source.id, record.external_key)
+            if legacy_record is not None:
+                legacy_entity = legacy_record.entity
+                legacy_record.entity_id = entity.id
+                session.flush()
+                remaining_legacy_record = session.scalar(
+                    select(Record.id).where(Record.entity_id == legacy_entity.id)
+                )
+                if remaining_legacy_record is None:
+                    session.delete(legacy_entity)
                 return False
 
             stored_record = Record(
@@ -127,3 +139,19 @@ def _find_legacy_entity(
         )
     ).all()
     return matching_name[0] if len(matching_name) == 1 else None
+
+
+def _find_legacy_record(
+    session: Session, source_id: int, external_key: str
+) -> Record | None:
+    """Return one unambiguous checkpoint that still uses a migration key."""
+    matches = session.scalars(
+        select(Record)
+        .join(Entity)
+        .where(
+            Entity.source_id == source_id,
+            Entity.external_key.startswith("legacy:"),
+            Record.external_key == external_key,
+        )
+    ).all()
+    return matches[0] if len(matches) == 1 else None

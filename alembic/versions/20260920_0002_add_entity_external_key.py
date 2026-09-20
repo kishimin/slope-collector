@@ -49,8 +49,9 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """Restore display-name identity for the initial schema contract."""
-    with op.batch_alter_table("entities") as batch:
-        batch.drop_constraint("uq_entities_source_external_key", type_="unique")
-        batch.create_unique_constraint("source_id", ("source_id", "name"))
-        batch.drop_column("external_key")
+    """Reject downgrade because stable identities cannot be converted safely."""
+    message = (
+        "downgrade is irreversible: stable entity identities cannot be restored "
+        "to the legacy display-name constraint without risking duplicate entities"
+    )
+    raise NotImplementedError(message)

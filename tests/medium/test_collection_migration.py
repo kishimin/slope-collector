@@ -97,6 +97,8 @@ def test_entity_identity_upgrade_changes_an_existing_schema() -> None:
         external_key = connection.scalar(
             sa.select(sa.column("external_key")).select_from(sa.table("entities"))
         )
+        with pytest.raises(NotImplementedError, match="irreversible"):
+            migration.downgrade()
 
     assert columns["external_key"]["nullable"] is False
     assert ("source_id", "external_key") in unique_keys

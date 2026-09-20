@@ -6,6 +6,7 @@ from typing import Literal, Self
 from pydantic import (
     AnyHttpUrl,
     BaseModel,
+    Field,
     MySQLDsn,
     SecretStr,
     ValidationError,
@@ -148,8 +149,12 @@ class Settings(BaseSettings):
     collector_response_timeout_seconds: float = 30
     collector_max_response_bytes: int = 5_242_880
     collector_max_pages: int = 500
-    collector_request_interval_seconds: float = 3
-    collector_request_jitter_seconds: float = 1
+    collector_request_interval_seconds: float = Field(
+        default=3, ge=0, allow_inf_nan=False
+    )
+    collector_request_jitter_seconds: float = Field(
+        default=1, ge=0, allow_inf_nan=False
+    )
     mail_host: str = ""
     mail_port: int = 587
     mail_username: SecretStr = SecretStr("")

@@ -144,10 +144,16 @@ def test_repeated_numbered_probe_is_natural_archive_end(
             html = (
                 "<main></main>"
                 if request.url.params.get("page") == "2"
-                else '<article class="entry"><a class="detail" href="/detail/1">Item</a></article>'
+                else (
+                    '<article class="entry"><a class="detail" '
+                    'href="/detail/1">Item</a></article>'
+                )
             )
         elif request.url.path == "/author":
-            html = '<article class="entry"><a class="detail" href="/detail/1">Item</a></article>'
+            html = (
+                '<article class="entry"><a class="detail" '
+                'href="/detail/1">Item</a></article>'
+            )
         else:
             html = (
                 '<h1 class="title">Title</h1><time class="date">2026-09-18 12:30</time>'

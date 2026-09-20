@@ -183,3 +183,70 @@ def test_collection_traverses_discovered_member_archive(
     assert result.visited_pages == expected_page_count
     assert len(repository.records) == expected_page_count
     assert any(record.source_path == "/detail/3" for record in repository.records)
+
+
+@pytest.mark.medium
+def test_collection_reports_first_entity_archive_parse_failure(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A malformed first archive page makes the backfill outcome fail."""
+    values = {
+        "DATABASE_URL": "mysql+pymysql://db/collector",
+        "COLLECTOR_USER_AGENT": "slope-collector-test/1.0 contact@example.invalid",
+        "COLLECTOR_MAX_PAGES": "3",
+        "SOURCE_A_BASE_URL": "https://source.example",
+        "SOURCE_A_LIST_PATH": "/list?page={page}",
+        "SOURCE_A_DETAIL_PATH": "/detail/{record_id}",
+        "SOURCE_A_ALLOWED_CDN_HOSTS": "cdn.example",
+        "SOURCE_A_LIST_ITEM_SELECTOR": ".entry",
+        "SOURCE_A_DETAIL_LINK_SELECTOR": ".detail",
+        "SOURCE_A_TITLE_SELECTOR": ".title",
+        "SOURCE_A_BODY_SELECTOR": ".body",
+        "SOURCE_A_DATE_SELECTOR": ".date",
+        "SOURCE_A_AUTHOR_SELECTOR": ".author",
+        "SOURCE_A_ENTITY_LINK_SELECTOR": ".author-link",
+        "SOURCE_A_ASSET_SELECTOR": ".body img",
+        "SOURCE_A_NEXT_PAGE_SELECTOR": ".next",
+        "SOURCE_A_RECORD_ID_PATTERN": r"/detail/(?P<record_id>\d+)",
+        "SOURCE_A_ENTITY_ID_QUERY_PARAM": "entity",
+        "SOURCE_A_PUBLISHED_AT_FORMAT": "%Y-%m-%d %H:%M",
+    }
+    for name, value in values.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.chdir(tmp_path)
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/list":
+            html = (
+                '<article class="entry"><a class="detail" href="/detail/1">'
+                "Item</a></article>"
+                if request.url.params.get("page") == "0"
+                else "<main></main>"
+            )
+        elif request.url.path == "/author":
+            html = "<main></main>"
+        else:
+            html = (
+                '<h1 class="title">Title</h1><time class="date">'
+                '2026-09-18 12:30</time><span class="author">Author</span>'
+                '<a class="author-link" href="/author?entity=7">Author</a>'
+                '<div class="body"><p>Body</p></div>'
+            )
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/html"},
+            text=html,
+            request=request,
+        )
+
+    result = collect_all(
+        settings=load_settings(),
+        source_keys=("source_a",),
+        mode=CollectionMode.BACKFILL,
+        repository=RecordingRepository(),
+        transport=httpx.MockTransport(respond),
+    )
+
+    assert result.saved_records == 1
+    assert result.failed_records == 1

@@ -215,3 +215,18 @@ async def test_local_user_receives_common_errors(application: object) -> None:
         "code": "BAD_REQUEST",
         "message": "The start date must not be after the end date.",
     }
+
+
+@pytest.mark.anyio
+@pytest.mark.medium
+async def test_unknown_path_uses_common_not_found_envelope(application: object) -> None:
+    """Framework routing failures use the same error contract as resource misses."""
+    transport = ASGITransport(app=application)  # type: ignore[arg-type]
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get("/unknown")
+
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+    assert response.json() == {
+        "code": "NOT_FOUND",
+        "message": "Not Found",
+    }

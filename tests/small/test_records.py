@@ -31,7 +31,7 @@ async def test_development_app_lists_stored_records() -> None:
         source = Source(name="source_a")
         session.add(source)
         session.flush()
-        entity = Entity(source_id=source.id, name="Example author")
+        entity = Entity(source_id=source.id, external_key="7", name="Example author")
         session.add(entity)
         session.flush()
         session.add(

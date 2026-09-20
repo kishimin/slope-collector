@@ -16,7 +16,8 @@ erDiagram
     ENTITIES {
         BIGINT id PK "UNSIGNED, AUTO_INCREMENT"
         BIGINT source_id FK,UK "UNSIGNED, NOT NULL"
-        VARCHAR name UK "VARCHAR(255), NOT NULL"
+        VARCHAR external_key UK "VARCHAR(255), NOT NULL"
+        VARCHAR name "VARCHAR(255), NOT NULL"
         BOOLEAN is_active "NOT NULL, DEFAULT TRUE"
         DATETIME created_at "NOT NULL, DEFAULT CURRENT_TIMESTAMP"
         DATETIME updated_at "NOT NULL, DEFAULT CURRENT_TIMESTAMP, ON UPDATE CURRENT_TIMESTAMP"
@@ -53,7 +54,7 @@ erDiagram
 
 ## Unique Keys
 
-- `entities`: `UNIQUE(source_id, name)`
+- `entities`: `UNIQUE(source_id, external_key)`
 - `records`: `UNIQUE(entity_id, external_key)`
 - `assets`: `UNIQUE(record_id, position)`
 
@@ -66,6 +67,7 @@ erDiagram
 ## Notes
 
 - All primary keys use `BIGINT UNSIGNED AUTO_INCREMENT`.
+- `entities.external_key` preserves the source-stable identity independently of the display name.
 - `entities.is_active` is a boolean flag and defaults to `TRUE`.
 - `created_at` defaults to `CURRENT_TIMESTAMP`.
 - `updated_at` defaults to `CURRENT_TIMESTAMP` and is automatically updated with `ON UPDATE CURRENT_TIMESTAMP`.

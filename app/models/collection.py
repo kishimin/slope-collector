@@ -52,12 +52,13 @@ class Entity(Timestamped, Base):
     """An author-like source entity that owns collected records."""
 
     __tablename__ = "entities"
-    __table_args__ = (UniqueConstraint("source_id", "name"),)
+    __table_args__ = (UniqueConstraint("source_id", "external_key"),)
 
     id: Mapped[int] = mapped_column(IdentifierType, primary_key=True)
     source_id: Mapped[int] = mapped_column(
         ForeignKey("sources.id", ondelete="RESTRICT"), nullable=False
     )
+    external_key: Mapped[str] = mapped_column(String(255), nullable=False)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     source: Mapped[Source] = relationship(back_populates="entities")

@@ -35,16 +35,19 @@ class SqlAlchemyCollectionRepository:
             entity = session.scalar(
                 select(Entity).where(
                     Entity.source_id == source.id,
-                    Entity.name == record.private_name,
+                    Entity.external_key == record.entity_external_key,
                 )
             )
             if entity is None:
                 entity = Entity(
                     source_id=source.id,
+                    external_key=record.entity_external_key,
                     name=record.private_name,
                 )
                 session.add(entity)
                 session.flush()
+            elif entity.name != record.private_name:
+                entity.name = record.private_name
 
             exists = session.scalar(
                 select(Record.id).where(

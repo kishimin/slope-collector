@@ -70,10 +70,11 @@ def test_repository_uses_source_entity_identifier_for_checkpoint() -> None:
     assert repository.persist(renamed) is False
 
     with sessions() as session:
+        expected_record_count = 2
         entities = session.scalars(select(Entity).order_by(Entity.external_key)).all()
         assert [(entity.external_key, entity.name) for entity in entities] == [
             ("7", "Updated author"),
             ("8", "Example author"),
         ]
-        assert len(session.scalars(select(Record)).all()) == 2
+        assert len(session.scalars(select(Record)).all()) == expected_record_count
     engine.dispose()

@@ -2,9 +2,10 @@
 
 from typing import TYPE_CHECKING
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.health import router as health_router
 from app.api.records import create_records_router
@@ -53,13 +54,15 @@ def create_app(
             },
         )
 
-    @application.exception_handler(HTTPException)
-    async def http_error_handler(_request: Request, exc: HTTPException) -> JSONResponse:
+    @application.exception_handler(StarletteHTTPException)
+    async def http_error_handler(
+        _request: Request, exc: StarletteHTTPException
+    ) -> JSONResponse:
         content = (
             exc.detail
             if isinstance(exc.detail, dict)
             else {
-                "code": "BAD_REQUEST",
+                "code": "NOT_FOUND" if exc.status_code == 404 else "BAD_REQUEST",
                 "message": str(exc.detail),
             }
         )

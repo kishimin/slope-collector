@@ -76,7 +76,7 @@ def test_page_ceiling_marks_collection_as_incomplete(
     result = collect_all(
         settings=load_settings(),
         source_keys=("source_a",),
-        mode=CollectionMode.BACKFILL,
+        mode=CollectionMode.DAILY,
         repository=RecordingRepository(),
         transport=httpx.MockTransport(respond),
     )

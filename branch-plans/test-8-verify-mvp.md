@@ -28,7 +28,7 @@ The following Issue #8 requirements are in scope:
 - [ ] Create acceptance coverage for the Issue #8 MVP verification contract without modifying existing acceptance tests. **Skipped by explicit user decision to not use ATDD.**
 - [x] Verify database-backed API integration coverage for list/detail behavior and error boundaries. Existing acceptance and medium tests exercise a real SQLAlchemy database through the HTTP boundary; no redundant test was added.
 - [x] Add mocked-HTTP incremental collection coverage, including duplicate prevention. Backfill coverage already exists in acceptance and medium tests.
-- [ ] Add persistence rollback coverage for records and assets.
+- [x] Add persistence rollback coverage for records and assets. A duplicate asset position is rejected without leaving partial rows.
 - [ ] Add retry and failure-summary integration coverage across the collector boundary.
 - [ ] Add an empty-MySQL Alembic migration verification that uses only test/deployment fixtures.
 - [ ] Add API startup and collector execution verification for the supported deployment environment.
@@ -40,6 +40,7 @@ The following Issue #8 requirements are in scope:
 
 - `python -m pytest acceptance/test_read_only_api.py tests/small/test_records.py tests/medium/test_collection_repository.py -q` — 10 passed.
 - `python -m pytest tests/medium/test_collection_incremental.py -q` — 1 passed.
+- `python -m pytest tests/medium/test_collection_repository.py -q` — 5 passed.
 
 ## Non-goals
 

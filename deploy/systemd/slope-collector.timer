@@ -2,9 +2,10 @@
 Description=Run Slope Collector daily
 
 [Timer]
-OnCalendar=daily
-Persistent=true
-RandomizedDelaySec=30m
+OnCalendar=*-*-* 03:00:00 Asia/Tokyo
+Persistent=false
+AccuracySec=1min
+RandomizedDelaySec=0
 Unit=slope-collector.service
 
 [Install]

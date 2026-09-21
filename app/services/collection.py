@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import random
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING, Protocol
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -52,6 +53,18 @@ class CollectionResult:
     skipped_records: int = 0
     failed_records: int = 0
     visited_pages: int = 0
+    failures: tuple[CollectionFailure, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class CollectionFailure:
+    """Sanitized context for one unresolved collection failure."""
+
+    occurred_at: datetime
+    stage: str
+    context: str
+    exception_type: str
+    message: str
 
 
 def collect_all(  # noqa: C901, PLR0912, PLR0913, PLR0915 - explicit workflow boundary.
@@ -69,6 +82,7 @@ def collect_all(  # noqa: C901, PLR0912, PLR0913, PLR0915 - explicit workflow bo
     skipped_records = 0
     failed_records = 0
     visited_pages = 0
+    failures: list[CollectionFailure] = []
 
     for source_key in source_keys:
         config = load_source_config(settings, source_key)
@@ -110,27 +124,44 @@ def collect_all(  # noqa: C901, PLR0912, PLR0913, PLR0915 - explicit workflow bo
                     break
                 seen_pages.add(page_path)
                 try:
-                    page = _fetch_list(get_html, adapter, page_path)
-                except ParseContractError:
+                    page = _fetch_list(
+                        get_html,
+                        adapter,
+                        page_path,
+                        settings=settings,
+                        sleep=sleep,
+                    )
+                except ParseContractError as error:
                     if numbered_pages and page_number > 0:
                         break
                     failed_records += 1
+                    failures.append(_failure("list", page_path, error))
                     break
-                except FetchPermanentError, FetchTemporaryError:
+                except (FetchPermanentError, FetchTemporaryError) as error:
                     failed_records += 1
+                    failures.append(_failure("list", page_path, error))
                     break
 
                 visited_pages += 1
                 for reference in page.records:
                     try:
-                        record = _fetch_record(get_html, adapter, reference.source_path)
+                        record = _fetch_record(
+                            get_html,
+                            adapter,
+                            reference.source_path,
+                            settings=settings,
+                            sleep=sleep,
+                        )
                         created = repository.persist(record)
                     except (
                         FetchPermanentError,
                         FetchTemporaryError,
                         ParseContractError,
-                    ):
+                    ) as error:
                         failed_records += 1
+                        failures.append(
+                            _failure("record", reference.source_path, error)
+                        )
                         continue
 
                     if created:
@@ -165,14 +196,28 @@ def collect_all(  # noqa: C901, PLR0912, PLR0913, PLR0915 - explicit workflow bo
                         member_seen_pages.add(archive_page_path)
                         try:
                             archive_page = _fetch_list(
-                                get_html, adapter, archive_page_path
+                                get_html,
+                                adapter,
+                                archive_page_path,
+                                settings=settings,
+                                sleep=sleep,
                             )
-                        except ParseContractError:
+                        except ParseContractError as error:
                             if not archive_page_is_probe:
                                 failed_records += 1
+                                failures.append(
+                                    _failure(
+                                        "archive",
+                                        archive_page_path,
+                                        error,
+                                    )
+                                )
                             break
-                        except FetchPermanentError, FetchTemporaryError:
+                        except (FetchPermanentError, FetchTemporaryError) as error:
                             failed_records += 1
+                            failures.append(
+                                _failure("archive", archive_page_path, error)
+                            )
                             break
 
                         visited_pages += 1
@@ -189,15 +234,22 @@ def collect_all(  # noqa: C901, PLR0912, PLR0913, PLR0915 - explicit workflow bo
                         for reference in archive_page.records:
                             try:
                                 record = _fetch_record(
-                                    get_html, adapter, reference.source_path
+                                    get_html,
+                                    adapter,
+                                    reference.source_path,
+                                    settings=settings,
+                                    sleep=sleep,
                                 )
                                 created = repository.persist(record)
                             except (
                                 FetchPermanentError,
                                 FetchTemporaryError,
                                 ParseContractError,
-                            ):
+                            ) as error:
                                 failed_records += 1
+                                failures.append(
+                                    _failure("record", reference.source_path, error)
+                                )
                                 continue
 
                             if created:
@@ -220,6 +272,7 @@ def collect_all(  # noqa: C901, PLR0912, PLR0913, PLR0915 - explicit workflow bo
         skipped_records=skipped_records,
         failed_records=failed_records,
         visited_pages=visited_pages,
+        failures=tuple(failures),
     )
 
 
@@ -227,21 +280,38 @@ def _fetch_list(
     get_html: Callable[[str], str],
     adapter: SourceAdapter,
     page_path: str,
+    *,
+    settings: Settings,
+    sleep: Callable[[float], None] | None,
 ) -> ListPage:
-    return _retry(lambda: adapter.parse_list(get_html(page_path)))
+    return _retry(
+        lambda: adapter.parse_list(get_html(page_path)),
+        settings=settings,
+        sleep=sleep,
+    )
 
 
 def _fetch_record(
     get_html: Callable[[str], str],
     adapter: SourceAdapter,
     source_path: str,
+    *,
+    settings: Settings,
+    sleep: Callable[[float], None] | None,
 ) -> CollectedRecord:
     return _retry(
-        lambda: adapter.parse_detail(get_html(source_path), source_path=source_path)
+        lambda: adapter.parse_detail(get_html(source_path), source_path=source_path),
+        settings=settings,
+        sleep=sleep,
     )
 
 
-def _retry[T](operation: Callable[[], T]) -> T:
+def _retry[T](
+    operation: Callable[[], T],
+    *,
+    settings: Settings,
+    sleep: Callable[[float], None] | None,
+) -> T:
     """Retry only transport failures; invalid source contracts fail immediately."""
     for attempt in range(MAX_ATTEMPTS):
         try:
@@ -249,8 +319,27 @@ def _retry[T](operation: Callable[[], T]) -> T:
         except FetchTemporaryError:
             if attempt == MAX_ATTEMPTS - 1:
                 raise
+            delay = settings.collector_retry_backoff_seconds * (2**attempt)
+            LOGGER.warning(
+                "temporary collection failure; retrying attempt=%d delay_seconds=%.2f",
+                attempt + 1,
+                delay,
+            )
+            if sleep is not None:
+                sleep(delay)
     message = "retry attempts are exhausted"
     raise RuntimeError(message)
+
+
+def _failure(stage: str, context: str, error: Exception) -> CollectionFailure:
+    """Create a sanitized failure record without response-body details."""
+    return CollectionFailure(
+        occurred_at=datetime.now(UTC),
+        stage=stage,
+        context=context,
+        exception_type=type(error).__name__,
+        message=str(error),
+    )
 
 
 def request_delay_seconds(

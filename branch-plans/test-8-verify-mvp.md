@@ -29,7 +29,7 @@ The following Issue #8 requirements are in scope:
 - [x] Verify database-backed API integration coverage for list/detail behavior and error boundaries. Existing acceptance and medium tests exercise a real SQLAlchemy database through the HTTP boundary; no redundant test was added.
 - [x] Add mocked-HTTP incremental collection coverage, including duplicate prevention. Backfill coverage already exists in acceptance and medium tests.
 - [x] Add persistence rollback coverage for records and assets. A duplicate asset position is rejected without leaving partial rows.
-- [ ] Add retry and failure-summary integration coverage across the collector boundary.
+- [x] Add retry and failure-summary integration coverage across the collector boundary. Mocked HTTP verifies transient retries; a permanent record failure is delivered as one sanitized summary.
 - [ ] Add an empty-MySQL Alembic migration verification that uses only test/deployment fixtures.
 - [ ] Add API startup and collector execution verification for the supported deployment environment.
 - [ ] Add systemd timer/service execution and journald inspection verification where the host environment permits it.
@@ -42,6 +42,7 @@ The following Issue #8 requirements are in scope:
 - `python -m pytest tests/medium/test_collection_incremental.py -q` — 1 passed.
 - `python -m pytest tests/medium/test_collection_repository.py -q` — 5 passed.
 - Full repository verification — 71 passed, total coverage 86.20%, Ruff format/check and mypy passed, `git diff --check` passed.
+- `python -m pytest tests/medium/test_collection_reliability_integration.py -q` — 2 passed.
 
 ## Non-goals
 

@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy import create_engine, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
 from app.models.collection import Asset, Base, Entity, Record, Source
@@ -169,4 +170,30 @@ def test_repository_reconciles_renamed_entity_after_new_record() -> None:
             ("7", "Updated author")
         ]
         assert [record.external_key for record in records] == ["42", "43"]
+    engine.dispose()
+
+
+@pytest.mark.medium
+def test_repository_rolls_back_record_and_assets_as_one_transaction() -> None:
+    """An asset constraint failure leaves no partial checkpoint behind."""
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    sessions = sessionmaker(engine)
+    repository = SqlAlchemyCollectionRepository(sessions)
+    invalid = replace(
+        collected_record(),
+        assets=(
+            CollectedAsset(source_path="/asset/1", position=0, alt_text="First"),
+            CollectedAsset(source_path="/asset/2", position=0, alt_text="Duplicate"),
+        ),
+    )
+
+    with pytest.raises(IntegrityError):
+        repository.persist(invalid)
+
+    with sessions() as session:
+        assert session.scalars(select(Source)).all() == []
+        assert session.scalars(select(Entity)).all() == []
+        assert session.scalars(select(Record)).all() == []
+        assert session.scalars(select(Asset)).all() == []
     engine.dispose()

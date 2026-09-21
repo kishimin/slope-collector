@@ -25,8 +25,8 @@ The following Issue #8 requirements are in scope:
 
 ## Ordered work items
 
-- [ ] Create acceptance coverage for the Issue #8 MVP verification contract without modifying existing acceptance tests.
-- [ ] Add database-backed API integration coverage for list/detail behavior and error boundaries.
+- [ ] Create acceptance coverage for the Issue #8 MVP verification contract without modifying existing acceptance tests. **Skipped by explicit user decision to not use ATDD.**
+- [x] Verify database-backed API integration coverage for list/detail behavior and error boundaries. Existing acceptance and medium tests exercise a real SQLAlchemy database through the HTTP boundary; no redundant test was added.
 - [ ] Add mocked-HTTP backfill and incremental collection coverage, including duplicate prevention.
 - [ ] Add persistence rollback coverage for records and assets.
 - [ ] Add retry and failure-summary integration coverage across the collector boundary.
@@ -35,6 +35,10 @@ The following Issue #8 requirements are in scope:
 - [ ] Add systemd timer/service execution and journald inspection verification where the host environment permits it.
 - [ ] Add a deterministic repository scan for secrets, `.env`, target-specific values, and fixtures.
 - [ ] Run formatting, type checking, lint/static analysis, tests, coverage, and `git diff --check`.
+
+## Progress evidence
+
+- `python -m pytest acceptance/test_read_only_api.py tests/small/test_records.py tests/medium/test_collection_repository.py -q` — 10 passed.
 
 ## Non-goals
 

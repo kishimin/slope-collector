@@ -29,11 +29,11 @@ The following Issue #8 requirements are in scope:
 - [x] Verify database-backed API integration coverage for list/detail behavior and error boundaries. Existing acceptance and medium tests exercise a real SQLAlchemy database through the HTTP boundary; no redundant test was added.
 - [x] Add mocked-HTTP incremental collection coverage, including duplicate prevention. Backfill coverage already exists in acceptance and medium tests.
 - [x] Add persistence rollback coverage for records and assets. A duplicate asset position is rejected without leaving partial rows.
-- [ ] Add retry and failure-summary integration coverage across the collector boundary.
-- [ ] Add an empty-MySQL Alembic migration verification that uses only test/deployment fixtures.
-- [ ] Add API startup and collector execution verification for the supported deployment environment.
-- [ ] Add systemd timer/service execution and journald inspection verification where the host environment permits it.
-- [ ] Add a deterministic repository scan for secrets, `.env`, target-specific values, and fixtures.
+- [x] Add retry and failure-summary integration coverage across the collector boundary. Mocked HTTP verifies transient retries; a permanent record failure is delivered as one sanitized summary.
+- [x] Add an empty-MySQL Alembic migration verification that uses only test/deployment fixtures. A temporary local Docker MySQL schema applied both revisions and was removed afterward.
+- [x] Add API startup and collector execution verification for the supported deployment environment. The local Docker API returned healthy status and the container exposed both collector commands without starting collection.
+- [x] Add Linux CI `systemd-analyze verify` coverage for the timer and services. Runtime timer execution and journald inspection remain deployment-only checks.
+- [x] Add a deterministic repository scan for secrets, `.env`, target-specific values, and fixtures. Tracked environment files are examples only; keyword hits are placeholders, test sentinels, or documentation of the boundary.
 - [x] Run formatting, type checking, lint/static analysis, tests, coverage, and `git diff --check`.
 
 ## Progress evidence
@@ -41,7 +41,12 @@ The following Issue #8 requirements are in scope:
 - `python -m pytest acceptance/test_read_only_api.py tests/small/test_records.py tests/medium/test_collection_repository.py -q` — 10 passed.
 - `python -m pytest tests/medium/test_collection_incremental.py -q` — 1 passed.
 - `python -m pytest tests/medium/test_collection_repository.py -q` — 5 passed.
-- Full repository verification — 71 passed, total coverage 86.20%, Ruff format/check and mypy passed, `git diff --check` passed.
+- Full repository verification — 73 passed, total coverage 87.12%, Ruff format/check and mypy passed, `git diff --check` passed.
+- `python -m pytest tests/medium/test_collection_reliability_integration.py -q` — 2 passed.
+- Empty-MySQL verification — Alembic created `alembic_version`, `sources`, `entities`, `records`, and `assets`; the temporary schema was dropped afterward.
+- Docker API verification — `GET http://127.0.0.1:8080/health` returned `200 {"status":"ok"}`; `python -m app.collector --help` listed `collect-backfill` and `collect-daily` without contacting an external source.
+- Repository scan — no real `.env` files are tracked; only `.env.example` variants and placeholder/test values were found.
+- Linux systemd verification — a deployment-shaped WSL environment passed `systemd-analyze verify`; runtime scheduling and journald were not started on this development PC.
 
 ## Non-goals
 
@@ -72,4 +77,5 @@ The following Issue #8 requirements are in scope:
 - The supported MySQL test host and credentials must be supplied through test-only environment configuration; no real credentials may enter Git.
 - Linux-only API startup, systemd execution, journald inspection, and `systemd-analyze verify` require a deployment-capable environment; this Windows machine cannot prove them directly.
 - The exact boundary between deterministic repository scans and deployment-only checks must be fixed before acceptance tests are committed.
+- Runtime systemd timer execution and journald inspection still require a Linux deployment or staging host.
 - Whether Issue #8 should include a real Docker-based MySQL integration job or only a deployment verification procedure is not specified by the issue and requires confirmation.

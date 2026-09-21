@@ -139,6 +139,15 @@ foreach ($environmentFile in $environmentFiles) {
 
 Fill in only deployment-specific local values. Never commit `.env`, `.env.development`, `.env.test`, credentials, target URLs, selectors, or collected data.
 
+The tracked `.env.example` defaults to `ENVIRONMENT=production`. Before the direct API command below, edit `.env` for local development and use a host-reachable MySQL URL, for example:
+
+```text
+ENVIRONMENT=development
+DATABASE_URL=mysql+pymysql://collector:replace-with-local-password@127.0.0.1:3307/collector
+```
+
+The `.env.development` example keeps the Compose hostname `db:3306`; use it with the Compose command rather than with a host-launched Uvicorn process.
+
 ### Run Tests
 
 ```powershell

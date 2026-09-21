@@ -34,6 +34,13 @@ def notify_failures(
         f"saved={result.saved_records}\n"
         f"skipped={result.skipped_records}\n"
         f"failed={result.failed_records}\n"
+        + "\n".join(
+            f" - {failure.occurred_at.isoformat()} stage={failure.stage} "
+            f"context={failure.context} exception={failure.exception_type}: "
+            f"{failure.message}"
+            for failure in result.failures
+        )
+        + "\n"
     )
     with smtp_factory(settings.mail_host, settings.mail_port, timeout=30) as smtp:
         smtp.starttls()

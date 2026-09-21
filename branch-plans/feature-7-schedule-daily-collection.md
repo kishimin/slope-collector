@@ -22,13 +22,13 @@ The following Issue #7 requirements are in scope:
 
 ## Ordered work items
 
-- [ ] Add or complete the daily incremental collection command while preserving the separate manual backfill command.
-- [ ] Define a systemd service that invokes the daily command with deployment-specific configuration supplied outside Git.
-- [ ] Define a once-per-day systemd timer and document its schedule semantics.
-- [ ] Enforce single-process execution for the service and add a test or configuration-level verification for overlap prevention.
-- [ ] Add operational documentation for installation, enable/start, status, logs, and manual execution.
-- [ ] Add or update acceptance tests for the Issue #7 command and scheduling contract without modifying existing acceptance tests.
-- [ ] Run formatting, type checking, lint/static analysis, tests, coverage, and `git diff --check`.
+- [x] Add or complete the daily incremental collection command while preserving the separate manual backfill command.
+- [x] Define a systemd service that invokes the daily command with deployment-specific configuration supplied outside Git.
+- [x] Define a once-per-day systemd timer and document its schedule semantics.
+- [x] Enforce single-process execution for the service and add a test or configuration-level verification for overlap prevention.
+- [x] Add operational documentation for installation, enable/start, status, logs, and manual execution.
+- [x] Add or update acceptance tests for the Issue #7 command and scheduling contract without modifying existing acceptance tests.
+- [x] Run formatting, type checking, lint/static analysis, tests, coverage, and `git diff --check`.
 
 ## Non-goals
 
@@ -56,7 +56,7 @@ The following Issue #7 requirements are in scope:
 
 ## Unresolved decisions and blockers
 
-- The exact daily timer time and timezone are not specified by Issue #7 and must be decided before writing the unit file.
-- The systemd deployment user, working directory, environment-file path, and service restart policy are deployment-specific and must remain placeholders or documented inputs.
-- The concrete inter-process lock mechanism must be selected and tested without introducing a second scheduler.
-- The ADR-0068 policy requires serial target processing and checkpoint-based resumption; implementation details must preserve that boundary.
+- The daily timer runs at 03:00 in `Asia/Tokyo`, with `AccuracySec=1min`, `Persistent=false`, and no randomized delay.
+- The service uses `slope-collector`, `/opt/slope-collector`, `/etc/slope-collector/collector.env`, and the repository virtual environment path selected during design review.
+- Single-process execution relies on systemd's same-unit execution control; `Type=oneshot` does not introduce a second scheduler.
+- The ADR-0068 policy is preserved by invoking `collect-daily` from the timer and keeping `collect-backfill` manual.

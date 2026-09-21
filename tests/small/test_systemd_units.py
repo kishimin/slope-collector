@@ -2,7 +2,6 @@
 
 from pathlib import Path
 
-
 ROOT = Path(__file__).parents[2]
 BACKFILL_SERVICE = ROOT / "deploy" / "systemd" / "slope-collector-backfill.service"
 OPERATIONS = ROOT / "docs" / "operations" / "daily-collection.md"
@@ -15,8 +14,8 @@ def test_backfill_service_loads_the_deployment_environment() -> None:
     assert "Type=oneshot" in content
     assert "EnvironmentFile=/etc/slope-collector/collector.env" in content
     assert (
-        "ExecStart=/opt/slope-collector/.venv/bin/python -m app.collector collect-backfill"
-        in content
+        "ExecStart=/opt/slope-collector/.venv/bin/python -m app.collector "
+        "collect-backfill" in content
     )
 
 

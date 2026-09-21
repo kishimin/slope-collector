@@ -34,13 +34,14 @@ The following Issue #8 requirements are in scope:
 - [ ] Add API startup and collector execution verification for the supported deployment environment.
 - [ ] Add systemd timer/service execution and journald inspection verification where the host environment permits it.
 - [ ] Add a deterministic repository scan for secrets, `.env`, target-specific values, and fixtures.
-- [ ] Run formatting, type checking, lint/static analysis, tests, coverage, and `git diff --check`.
+- [x] Run formatting, type checking, lint/static analysis, tests, coverage, and `git diff --check`.
 
 ## Progress evidence
 
 - `python -m pytest acceptance/test_read_only_api.py tests/small/test_records.py tests/medium/test_collection_repository.py -q` — 10 passed.
 - `python -m pytest tests/medium/test_collection_incremental.py -q` — 1 passed.
 - `python -m pytest tests/medium/test_collection_repository.py -q` — 5 passed.
+- Full repository verification — 71 passed, total coverage 86.20%, Ruff format/check and mypy passed, `git diff --check` passed.
 
 ## Non-goals
 

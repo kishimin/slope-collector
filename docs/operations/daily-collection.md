@@ -28,6 +28,7 @@ Copy the unit files from `deploy/systemd/` into `/etc/systemd/system/`:
 ```sh
 sudo install -m 0644 deploy/systemd/slope-collector.service /etc/systemd/system/
 sudo install -m 0644 deploy/systemd/slope-collector.timer /etc/systemd/system/
+sudo install -m 0644 deploy/systemd/slope-collector-backfill.service /etc/systemd/system/
 sudo systemctl daemon-reload
 ```
 
@@ -65,12 +66,12 @@ Start one incremental run manually when the timer is not already running:
 sudo systemctl start slope-collector.service
 ```
 
-Run the initial full-history operation separately and only when explicitly
-needed:
+Run the initial full-history operation through its separate service when it is
+explicitly needed. This service loads the same deployment environment file as
+the scheduled service and invokes `collect-backfill`:
 
 ```sh
-cd /opt/slope-collector
-sudo -u slope-collector /opt/slope-collector/.venv/bin/python -m app.collector collect-backfill
+sudo systemctl start slope-collector-backfill.service
 ```
 
 Do not put the initial backfill command in the timer unit. A failed daily run

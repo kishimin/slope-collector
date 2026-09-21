@@ -1,0 +1,20 @@
+[Unit]
+Description=Slope Collector manual full-history backfill
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/opt/slope-collector/app/collector.py
+
+[Service]
+Type=oneshot
+User=slope-collector
+Group=slope-collector
+WorkingDirectory=/opt/slope-collector
+EnvironmentFile=/etc/slope-collector/collector.env
+ExecStart=/opt/slope-collector/.venv/bin/python -m app.collector collect-backfill
+Restart=no
+TimeoutStartSec=infinity
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict

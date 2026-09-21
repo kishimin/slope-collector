@@ -41,6 +41,39 @@ def test_backfill_command_runs_both_configured_sources(
 
 
 @pytest.mark.small
+def test_daily_command_selects_incremental_collection_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The scheduled command delegates to the incremental workflow."""
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        collector,
+        "load_settings",
+        lambda: SimpleNamespace(log_level="INFO"),
+    )
+    monkeypatch.setattr(
+        collector,
+        "create_session_factory",
+        lambda _settings: object(),
+    )
+    monkeypatch.setattr(
+        collector,
+        "SqlAlchemyCollectionRepository",
+        lambda _sessions: object(),
+    )
+
+    def collect(**kwargs: object) -> CollectionResult:
+        captured.update(kwargs)
+        return CollectionResult()
+
+    monkeypatch.setattr(collector, "collect_all", collect)
+
+    assert collector.main(["collect-daily"]) == 0
+    assert captured["mode"] is CollectionMode.DAILY
+
+
+@pytest.mark.small
 def test_collection_command_suppresses_http_client_details(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

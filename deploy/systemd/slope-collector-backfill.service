@@ -1,5 +1,5 @@
 [Unit]
-Description=Slope Collector daily collection
+Description=Slope Collector manual full-history backfill
 After=network-online.target
 Wants=network-online.target
 ConditionPathExists=/opt/slope-collector/app/collector.py
@@ -10,7 +10,7 @@ User=slope-collector
 Group=slope-collector
 WorkingDirectory=/opt/slope-collector
 EnvironmentFile=/etc/slope-collector/collector.env
-ExecStart=/opt/slope-collector/.venv/bin/python -m app.collector collect-daily
+ExecStart=/opt/slope-collector/.venv/bin/python -m app.collector collect-backfill
 Restart=no
 TimeoutStartSec=infinity
 UMask=0077

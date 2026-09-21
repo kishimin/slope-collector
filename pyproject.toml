@@ -61,6 +61,7 @@ ignore = ["COM812", "CPY001", "D203", "D213"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["S101"]
+"acceptance/test_issue_7_scheduling.py" = ["D103", "I001", "INP001", "S101"]
 
 [tool.mypy]
 python_version = "3.14"

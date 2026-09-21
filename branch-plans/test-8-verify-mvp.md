@@ -31,9 +31,9 @@ The following Issue #8 requirements are in scope:
 - [x] Add persistence rollback coverage for records and assets. A duplicate asset position is rejected without leaving partial rows.
 - [x] Add retry and failure-summary integration coverage across the collector boundary. Mocked HTTP verifies transient retries; a permanent record failure is delivered as one sanitized summary.
 - [x] Add an empty-MySQL Alembic migration verification that uses only test/deployment fixtures. A temporary local Docker MySQL schema applied both revisions and was removed afterward.
-- [ ] Add API startup and collector execution verification for the supported deployment environment.
+- [x] Add API startup and collector execution verification for the supported deployment environment. The local Docker API returned healthy status and the container exposed both collector commands without starting collection.
 - [ ] Add systemd timer/service execution and journald inspection verification where the host environment permits it.
-- [ ] Add a deterministic repository scan for secrets, `.env`, target-specific values, and fixtures.
+- [x] Add a deterministic repository scan for secrets, `.env`, target-specific values, and fixtures. Tracked environment files are examples only; keyword hits are placeholders, test sentinels, or documentation of the boundary.
 - [x] Run formatting, type checking, lint/static analysis, tests, coverage, and `git diff --check`.
 
 ## Progress evidence
@@ -44,6 +44,8 @@ The following Issue #8 requirements are in scope:
 - Full repository verification — 73 passed, total coverage 87.12%, Ruff format/check and mypy passed, `git diff --check` passed.
 - `python -m pytest tests/medium/test_collection_reliability_integration.py -q` — 2 passed.
 - Empty-MySQL verification — Alembic created `alembic_version`, `sources`, `entities`, `records`, and `assets`; the temporary schema was dropped afterward.
+- Docker API verification — `GET http://127.0.0.1:8080/health` returned `200 {"status":"ok"}`; `python -m app.collector --help` listed `collect-backfill` and `collect-daily` without contacting an external source.
+- Repository scan — no real `.env` files are tracked; only `.env.example` variants and placeholder/test values were found.
 
 ## Non-goals
 

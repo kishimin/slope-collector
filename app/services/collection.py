@@ -85,6 +85,7 @@ def collect_all(  # noqa: C901, PLR0912, PLR0913, PLR0915 - explicit workflow bo
     failures: list[CollectionFailure] = []
 
     for source_key in source_keys:
+        LOGGER.info("collection source started source=%s mode=%s", source_key, mode)
         config = load_source_config(settings, source_key)
         adapter = SourceAdapter(source_key, config)
         limits = HttpLimits(
@@ -135,11 +136,11 @@ def collect_all(  # noqa: C901, PLR0912, PLR0913, PLR0915 - explicit workflow bo
                     if numbered_pages and page_number > 0:
                         break
                     failed_records += 1
-                    failures.append(_failure("list", page_path, error))
+                    failures.append(_failure("list", source_key, error))
                     break
                 except (FetchPermanentError, FetchTemporaryError) as error:
                     failed_records += 1
-                    failures.append(_failure("list", page_path, error))
+                    failures.append(_failure("list", source_key, error))
                     break
 
                 visited_pages += 1
@@ -159,9 +160,7 @@ def collect_all(  # noqa: C901, PLR0912, PLR0913, PLR0915 - explicit workflow bo
                         ParseContractError,
                     ) as error:
                         failed_records += 1
-                        failures.append(
-                            _failure("record", reference.source_path, error)
-                        )
+                        failures.append(_failure("record", source_key, error))
                         continue
 
                     if created:
@@ -205,19 +204,11 @@ def collect_all(  # noqa: C901, PLR0912, PLR0913, PLR0915 - explicit workflow bo
                         except ParseContractError as error:
                             if not archive_page_is_probe:
                                 failed_records += 1
-                                failures.append(
-                                    _failure(
-                                        "archive",
-                                        archive_page_path,
-                                        error,
-                                    )
-                                )
+                                failures.append(_failure("archive", source_key, error))
                             break
                         except (FetchPermanentError, FetchTemporaryError) as error:
                             failed_records += 1
-                            failures.append(
-                                _failure("archive", archive_page_path, error)
-                            )
+                            failures.append(_failure("archive", source_key, error))
                             break
 
                         visited_pages += 1
@@ -247,9 +238,7 @@ def collect_all(  # noqa: C901, PLR0912, PLR0913, PLR0915 - explicit workflow bo
                                 ParseContractError,
                             ) as error:
                                 failed_records += 1
-                                failures.append(
-                                    _failure("record", reference.source_path, error)
-                                )
+                                failures.append(_failure("record", source_key, error))
                                 continue
 
                             if created:
@@ -267,13 +256,28 @@ def collect_all(  # noqa: C901, PLR0912, PLR0913, PLR0915 - explicit workflow bo
                             )
                             archive_page_is_probe = True
 
-    return CollectionResult(
+    result = CollectionResult(
         saved_records=saved_records,
         skipped_records=skipped_records,
         failed_records=failed_records,
         visited_pages=visited_pages,
         failures=tuple(failures),
     )
+    LOGGER.info(
+        "collection completed saved=%d skipped=%d failed=%d pages=%d",
+        result.saved_records,
+        result.skipped_records,
+        result.failed_records,
+        result.visited_pages,
+    )
+    for failure in result.failures:
+        LOGGER.error(
+            "collection failure stage=%s source=%s exception=%s",
+            failure.stage,
+            failure.context,
+            failure.exception_type,
+        )
+    return result
 
 
 def _fetch_list(

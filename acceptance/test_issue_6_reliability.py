@@ -81,7 +81,7 @@ def test_failure_summary_contains_context_without_response_body() -> None:
     failure = CollectionFailure(
         occurred_at=datetime(2026, 9, 21, 1, 2, tzinfo=UTC),
         stage="record",
-        context="/records/example",
+        context="source_a",
         exception_type="FetchTemporaryError",
         message="source request failed",
     )
@@ -95,5 +95,5 @@ def test_failure_summary_contains_context_without_response_body() -> None:
     message = sent[0]
     content = message.get_content()
     assert "stage=record" in content
-    assert "context=/records/example" in content
+    assert "context=source_a" in content
     assert "source request failed" in content

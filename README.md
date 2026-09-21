@@ -1,29 +1,128 @@
+<div id="top"></div>
+
 # slope-collector
 
-Collect and expose normalized public records without committing target-specific
-configuration or secrets.
+Collect and expose normalized public records through a local FastAPI service and a separate collection process.
 
-## Requirements
+## Tech Stack
 
-- Python 3.14.7
-- uv 0.12.15
-- Docker Desktop for the local MySQL environment
+<p style="display: inline">
+  <img src="https://img.shields.io/badge/-Python-3776AB.svg?logo=python&style=for-the-badge&logoColor=white">
+  <img src="https://img.shields.io/badge/-FastAPI-009688.svg?logo=fastapi&style=for-the-badge&logoColor=white">
+  <img src="https://img.shields.io/badge/-MySQL-4479A1.svg?logo=mysql&style=for-the-badge&logoColor=white">
+  <img src="https://img.shields.io/badge/-pytest-0A9EDC.svg?logo=pytest&style=for-the-badge&logoColor=white">
+  <img src="https://img.shields.io/badge/-Docker-2496ED.svg?logo=docker&style=for-the-badge&logoColor=white">
+  <img src="https://img.shields.io/badge/-Ruff-D7FF64.svg?logo=ruff&style=for-the-badge&logoColor=black">
+</p>
 
-## Setup
+## Table of Contents
 
-Install the locked development environment:
+1. [About the Project](#about-the-project)
+2. [Environment](#environment)
+3. [Directory Structure](#directory-structure)
+4. [Getting Started](#getting-started)
+5. [Usage](#usage)
+6. [API Endpoints](#api-endpoints)
+7. [Available Commands](#available-commands)
+8. [Troubleshooting](#troubleshooting)
+9. [License](#license)
+
+## About the Project
+
+slope-collector provides these concepts:
+
+- **Source**: A configured public collection source represented by a safe name.
+- **Entity**: A source-owned author-like identity that groups records.
+- **Record**: A normalized public article with a title, body, source path, and publication time.
+- **Asset**: An approved image reference attached to a record.
+- **Backfill**: A manual collection mode that follows historical pages.
+- **Daily collection**: An incremental mode that stops at an existing persistence checkpoint.
+
+The repository separates collection from the read-only development API. FastAPI exposes locally stored records, while the collector uses HTTP bounds, pacing, retries, and persistence checkpoints. Source URLs, selectors, credentials, and collected data stay outside committed files; the committed environment examples contain placeholders only.
+
+The development API is bound to localhost by the Compose configuration. Production deployment details are represented by systemd unit files, but runtime timer execution and journald inspection require a Linux deployment environment.
+
+<p align="right">(<a href="#top">back to top</a>)</p>
+
+## Environment
+
+| Language / Framework | Version |
+| -------------------- | ------- |
+| Python | 3.14.7 |
+| uv | 0.12.15 |
+| FastAPI | >=0.100,<1 |
+| MySQL | 9.7.2 (Compose image) |
+
+See `pyproject.toml`, `uv.lock`, and the `*.env.example` files for dependency and environment metadata.
+
+<p align="right">(<a href="#top">back to top</a>)</p>
+
+## Directory Structure
+
+```text
+.
+├── .github/workflows
+├── acceptance
+├── alembic/versions
+├── app
+│   ├── api
+│   ├── db
+│   ├── models
+│   ├── repositories
+│   ├── scraping
+│   └── services
+├── branch-plans
+├── deploy/systemd
+├── docs
+├── tests
+│   ├── small
+│   ├── medium
+│   └── large
+├── Dockerfile
+├── compose.yaml
+├── LICENSE
+├── pyproject.toml
+├── README.md
+└── uv.lock
+```
+
+### Main Directories
+
+| Directory | Description |
+| --------- | ----------- |
+| `app/api` | FastAPI health and development read-only endpoints. |
+| `app/scraping` | HTTP bounds, source adapters, parsing, and preview support. |
+| `app/services` | Collection workflows, retry handling, and notifications. |
+| `app/repositories` | Persistence checkpoint implementation. |
+| `app/models` and `app/db` | SQLAlchemy models and database session infrastructure. |
+| `alembic` | Database migration environment and revisions. |
+| `deploy/systemd` | Daily and manual collection service/timer definitions. |
+| `acceptance` and `tests` | Acceptance contracts and size-marked automated tests. |
+| `.github/workflows` | Quality, test, container, and Linux systemd verification jobs. |
+
+<p align="right">(<a href="#top">back to top</a>)</p>
+
+## Getting Started
+
+### Prerequisites
+
+Install Python 3.14.7, uv 0.12.15, and Docker Desktop. The local Compose environment uses MySQL 9.7.2 and publishes the database on `127.0.0.1:3307`.
+
+### Clone the Repository
+
+```powershell
+git clone https://github.com/kishimin/slope-collector.git
+cd slope-collector
+```
+
+### Install Dependencies
 
 ```powershell
 uv sync --all-groups
 uv run pre-commit install --hook-type pre-commit --hook-type pre-push
 ```
 
-The local `.env`, `.env.development`, and `.env.test` files are intentionally
-excluded from Git. Their committed `*.example` counterparts document the
-required variable names without real collection targets or credentials.
-
-Create the files used by the local API and Docker Compose. This script keeps an
-existing destination file instead of overwriting it:
+Create local environment files from the committed examples without overwriting existing files:
 
 ```powershell
 $environmentFiles = @(
@@ -32,109 +131,141 @@ $environmentFiles = @(
 )
 
 foreach ($environmentFile in $environmentFiles) {
-    if (Test-Path -LiteralPath $environmentFile.Destination) {
-        Write-Host "Keeping existing $($environmentFile.Destination)"
-        continue
+    if (-not (Test-Path -LiteralPath $environmentFile.Destination)) {
+        Copy-Item -LiteralPath $environmentFile.Source -Destination $environmentFile.Destination
     }
-
-    Copy-Item -LiteralPath $environmentFile.Source -Destination $environmentFile.Destination
 }
 ```
 
-Before starting either environment, replace the placeholder local passwords in
-`.env.development`. Also set `.env`'s `DATABASE_URL` to a database reachable
-from the host. When using the Compose database published by this project, use
-port `3307` and the same database name, user, and password configured in
-`.env.development`.
+Fill in only deployment-specific local values. Never commit `.env`, `.env.development`, `.env.test`, credentials, target URLs, selectors, or collected data.
 
-The application automatically loads `.env`; it does not automatically load
-`.env.test`. The committed `.env.test.example` is reserved for commands that
-explicitly load a separate test environment. The current test suite supplies
-its required settings through the test runner and does not require a local
-`.env.test` file.
+The tracked `.env.example` defaults to `ENVIRONMENT=production`. Before the direct API command below, edit `.env` for local development and use a host-reachable MySQL URL, for example:
 
-## Run the API
+```text
+ENVIRONMENT=development
+DATABASE_URL=mysql+pymysql://collector:replace-with-local-password@127.0.0.1:3307/collector
+```
 
-Start the API directly:
+The `.env.development` example keeps the Compose hostname `db:3306`; use it with the Compose command rather than with a host-launched Uvicorn process.
+
+### Run Tests
+
+```powershell
+uv run pytest -m "small or medium"
+uv run pytest acceptance tests --cov=app --cov-report=term-missing -q
+```
+
+### Start the API
+
+Run the development API directly:
 
 ```powershell
 uv run uvicorn app.main:app --reload --port 8080
 ```
 
-Start the API and MySQL 9.7.2 with Docker Compose:
+Or start the API and MySQL together:
 
 ```powershell
 docker compose --env-file .env.development up --build
 ```
 
-The API is available on port `8080`. Docker publishes MySQL on port `3307` so
-it does not conflict with a host MySQL service on the default port.
+Open `http://127.0.0.1:8080/health` and expect `{"status":"ok"}`.
 
-## Verify source adapters locally
-
-Private source URLs, paths, selectors, identifier patterns, and approved asset
-hosts belong only in the untracked `.env` file. Their committed example values
-must remain empty.
-
-Fetch and parse one article from each configured source into a local Markdown
-preview:
+### Run the Production Container
 
 ```powershell
-uv run python -m app.scraping.preview --output scrape-preview.md
+docker build --tag slope-collector:local .
+docker compose --env-file .env.development up --build
 ```
 
-The preview intentionally omits source hosts, source URLs, selectors, and image
-URLs. `scrape-preview.md` is not ignored automatically; inspect it locally and
-do not stage or commit it.
+The image exposes port `8080`. Compose binds the API to `127.0.0.1:8080` and MySQL to `127.0.0.1:3307`.
 
-## Collect records
+<p align="right">(<a href="#top">back to top</a>)</p>
 
-Create the schema once, then run a manual backfill. Both commands read only
-local configuration and are intentionally separate from the API process:
+## Usage
+
+### Read the local API
+
+```python
+from urllib.request import urlopen
+
+with urlopen("http://127.0.0.1:8080/health", timeout=2) as response:
+    print(response.read().decode())
+```
+
+### Initialize and collect records
 
 ```powershell
 uv run alembic upgrade head
 uv run python -m app.collector collect-backfill
-```
-
-The backfill follows every configured list page and saves each record and its
-assets in an individual transaction. Re-running it skips existing records.
-For scheduled incremental collection, use the supplied systemd unit's command:
-
-```powershell
 uv run python -m app.collector collect-daily
 ```
 
-Do not run the migration or collection command against a database or source
-unless that environment is intended for persistent collection.
+Run collection only against an intentionally configured local or deployment database. `collect-backfill` and `collect-daily` are separate processes from FastAPI.
 
-## Verification
+<p align="right">(<a href="#top">back to top</a>)</p>
 
-| Purpose | Command |
-| --- | --- |
-| Format | `uv run ruff format .` |
-| Format check | `uv run ruff format --check .` |
-| Lint | `uv run ruff check .` |
-| Type check | `uv run mypy app tests` |
-| Small tests | `uv run pytest -m small` |
-| Small and Medium tests | `uv run pytest -m "small or medium"` |
-| All tests with coverage | `uv run pytest --cov=app --cov-report=term-missing` |
-| Validate Compose | `docker compose --env-file .env.development config --quiet` |
-| Build container | `docker build --tag slope-collector:local .` |
+## API Endpoints
 
-Coverage fails when Coverage.py's branch-aware total falls below 80%.
+Development record routes are enabled only when `ENVIRONMENT=development`. Production exposes the health route but does not publish the development record browser.
 
-## Project structure
+| Method | Path | Description |
+| ------ | ---- | ----------- |
+| `GET` | `/health` | Return service availability. |
+| `GET` | `/sources` | List configured source names. |
+| `GET` | `/entities` | List entities; optionally filter with `source_id`. |
+| `GET` | `/entities/{entity_id}` | Return one entity or `404`. |
+| `GET` | `/records` | List records with entity, date, and pagination filters. |
+| `GET` | `/records/{record_id}` | Return one record with body and assets, or `404`. |
 
-```text
-app/
-├── api/          # FastAPI endpoints
-├── db/           # Database infrastructure
-├── models/       # SQLAlchemy models
-├── repositories/ # Persistence boundaries
-├── scraping/     # HTTP fetching and parsing
-└── services/     # Application workflows
-```
+### Record List Query Parameters
 
-Alembic contains the initial collection schema. The systemd units run the
-`collect-daily` command as a separate process rather than inside FastAPI.
+| Field | Required | Default | Description |
+| ----- | -------- | ------- | ----------- |
+| `entity_id` | No | - | Filter by entity ID. |
+| `from` | No | - | Inclusive publication date lower bound. |
+| `to` | No | - | Inclusive publication date upper bound. |
+| `limit` | No | `20` | Page size from `1` to `100`. |
+| `offset` | No | `0` | Number of records to skip; must be non-negative. |
+
+Responses use JSON and UTC ISO 8601 timestamps. Invalid parameters return `422` with `code=VALIDATION_ERROR`; invalid date ranges return `400`; missing resources return `404` with `code=NOT_FOUND`.
+
+<p align="right">(<a href="#top">back to top</a>)</p>
+
+## Available Commands
+
+| Command | Description |
+| ------- | ----------- |
+| `uv sync --all-groups` | Install the locked development environment. |
+| `uv run uvicorn app.main:app --reload --port 8080` | Start the development API. |
+| `uv run alembic upgrade head` | Apply database migrations. |
+| `uv run python -m app.collector collect-backfill` | Run manual historical collection. |
+| `uv run python -m app.collector collect-daily` | Run incremental collection. |
+| `uv run pytest -m small` | Run small tests. |
+| `uv run pytest -m "small or medium"` | Run small and medium tests. |
+| `uv run pytest acceptance tests --cov=app --cov-report=term-missing -q` | Run the full local test and coverage command. |
+| `uv run ruff format --check .` | Check formatting. |
+| `uv run ruff check .` | Run Ruff lint checks. |
+| `uv run mypy app tests` | Run strict type checks. |
+| `docker compose --env-file .env.development config --quiet` | Validate Compose configuration. |
+| `docker build --tag slope-collector:local .` | Build the application image. |
+
+<p align="right">(<a href="#top">back to top</a>)</p>
+
+## Troubleshooting
+
+### `uv: The term 'uv' is not recognized`
+
+The uv executable is not installed or is not available on the PowerShell `PATH`. Install uv 0.12.15, reopen PowerShell so the PATH is refreshed, and confirm with `uv --version` before running the commands above.
+
+### `DATABASE_URL` validation fails
+
+The application requires a MySQL URL using the `mysql+pymysql` driver. Check the untracked `.env` or `.env.development` file and ensure the database is reachable before running migrations or collection.
+
+<p align="right">(<a href="#top">back to top</a>)</p>
+
+## License
+
+This project is licensed under the MIT License. See `LICENSE` for the full text.
+
+<p align="right">(<a href="#top">back to top</a>)</p>

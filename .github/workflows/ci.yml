@@ -74,3 +74,25 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Build image
         run: docker build --tag slope-collector:ci .
+
+  systemd:
+    name: systemd units
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Prepare deployment-shaped paths
+        run: |
+          sudo groupadd --system slope-collector
+          sudo useradd --system --gid slope-collector --no-create-home slope-collector
+          sudo install -d -o slope-collector -g slope-collector /opt/slope-collector
+          sudo install -d -o root -g slope-collector -m 0750 /etc/slope-collector
+          sudo install -m 0640 -o root -g slope-collector /dev/null /etc/slope-collector/collector.env
+          sudo install -d /opt/slope-collector/.venv/bin
+          sudo install -m 0755 "$(command -v python3)" /opt/slope-collector/.venv/bin/python
+      - name: Verify systemd units
+        run: >-
+          sudo systemd-analyze verify
+          deploy/systemd/slope-collector.service
+          deploy/systemd/slope-collector-backfill.service
+          deploy/systemd/slope-collector.timer

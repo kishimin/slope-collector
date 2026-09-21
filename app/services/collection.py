@@ -182,6 +182,8 @@ def collect_all(  # noqa: C901, PLR0912, PLR0913, PLR0915 - explicit workflow bo
                             reference.source_path for reference in archive_page.records
                         )
                         if signature in member_seen_signatures:
+                            if not archive_page_is_probe:
+                                failed_records += 1
                             break
                         member_seen_signatures.add(signature)
                         for reference in archive_page.records:

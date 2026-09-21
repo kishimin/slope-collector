@@ -83,3 +83,8 @@ def test_page_ceiling_marks_collection_as_incomplete(
 
     assert result.saved_records == 1
     assert result.failed_records == 1
+    assert len(result.failures) == 1
+    failure = result.failures[0]
+    assert failure.stage == "list"
+    assert failure.exception_type == "PaginationGuardError"
+    assert failure.message == "page limit reached"

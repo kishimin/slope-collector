@@ -119,9 +119,15 @@ def collect_all(  # noqa: C901, PLR0912, PLR0913, PLR0915 - explicit workflow bo
             while page_path is not None and not stop_at_checkpoint:
                 if page_path in seen_pages:
                     failed_records += 1
+                    failures.append(
+                        _guard_failure("list", source_key, "repeated page path")
+                    )
                     break
                 if len(seen_pages) >= settings.collector_max_pages:
                     failed_records += 1
+                    failures.append(
+                        _guard_failure("list", source_key, "page limit reached")
+                    )
                     break
                 seen_pages.add(page_path)
                 try:
@@ -188,9 +194,19 @@ def collect_all(  # noqa: C901, PLR0912, PLR0913, PLR0915 - explicit workflow bo
                     while archive_page_path is not None:
                         if archive_page_path in member_seen_pages:
                             failed_records += 1
+                            failures.append(
+                                _guard_failure(
+                                    "archive", source_key, "repeated page path"
+                                )
+                            )
                             break
                         if len(member_seen_pages) >= settings.collector_max_pages:
                             failed_records += 1
+                            failures.append(
+                                _guard_failure(
+                                    "archive", source_key, "page limit reached"
+                                )
+                            )
                             break
                         member_seen_pages.add(archive_page_path)
                         try:
@@ -220,6 +236,13 @@ def collect_all(  # noqa: C901, PLR0912, PLR0913, PLR0915 - explicit workflow bo
                         if signature in member_seen_signatures:
                             if not archive_page_is_probe:
                                 failed_records += 1
+                                failures.append(
+                                    _guard_failure(
+                                        "archive",
+                                        source_key,
+                                        "repeated archive signature",
+                                    )
+                                )
                             break
                         member_seen_signatures.add(signature)
                         for reference in archive_page.records:
@@ -343,6 +366,17 @@ def _failure(stage: str, context: str, error: Exception) -> CollectionFailure:
         context=context,
         exception_type=type(error).__name__,
         message=str(error),
+    )
+
+
+def _guard_failure(stage: str, context: str, reason: str) -> CollectionFailure:
+    """Create a sanitized failure record for a pagination safety guard."""
+    return CollectionFailure(
+        occurred_at=datetime.now(UTC),
+        stage=stage,
+        context=context,
+        exception_type="PaginationGuardError",
+        message=reason,
     )
 
 

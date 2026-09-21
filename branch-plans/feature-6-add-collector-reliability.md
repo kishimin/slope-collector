@@ -29,6 +29,6 @@
 - Coverage remains at least 80%.
 - The branch contains no `.env`, secrets, target-specific values, or generated artifacts.
 
-## Unresolved decisions
+## Decisions recorded during implementation
 
-- The retry backoff default and whether it should be configurable must be confirmed from the existing settings boundary before implementation.
+- Retry backoff is configurable through `COLLECTOR_RETRY_BACKOFF_SECONDS` and defaults to one second with exponential growth per retry.

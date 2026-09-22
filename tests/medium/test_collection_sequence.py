@@ -27,16 +27,17 @@ class RecordingRepository:
         self.records.append(record)
         return True
 
-    def exists(
+    def existing_record_keys(
         self,
         _source_key: str,
         _entity_external_key: str,
-        record_external_key: str,
-    ) -> bool:
-        """Report whether a record was already recorded by this test double."""
-        return record_external_key in self.existing_external_keys or any(
-            record.external_key == record_external_key for record in self.records
-        )
+        record_external_keys: tuple[str, ...],
+    ) -> frozenset[str]:
+        """Report which page records were already recorded by this double."""
+        stored = self.existing_external_keys | {
+            record.external_key for record in self.records
+        }
+        return frozenset(key for key in record_external_keys if key in stored)
 
 
 @pytest.mark.medium
@@ -113,10 +114,10 @@ def test_collection_uses_numbered_pages_until_empty(
         transport=httpx.MockTransport(respond),
     )
 
-    expected_records = 3
+    expected_records = 2
     assert result.saved_records == expected_records
     assert result.failed_records == 0
-    assert result.visited_pages == expected_records
+    assert result.visited_pages == expected_records + 1
     assert repository.records[0].entity_path == "/author?entity=7"
 
 
@@ -270,7 +271,7 @@ def test_collection_traverses_discovered_member_archive(
 
     assert result.failed_records == 0
     assert result.visited_pages == expected_page_count
-    assert len(repository.records) == expected_page_count
+    assert len(repository.records) == expected_page_count - 1
     assert any(record.source_path == "/detail/3" for record in repository.records)
 
 

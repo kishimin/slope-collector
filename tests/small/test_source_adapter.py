@@ -58,6 +58,20 @@ def test_list_parser_returns_unique_records_and_next_page() -> None:
     assert page.next_path == "/list?page=2"
 
 
+def test_list_parser_extracts_all_detail_links_inside_one_list_item() -> None:
+    """A wrapper containing multiple article cards must not lose later links."""
+    html = """
+    <ul class="entry">
+      <li><a class="detail-link" href="/detail/42">One</a></li>
+      <li><a class="detail-link" href="/detail/43">Two</a></li>
+    </ul>
+    """
+
+    page = SourceAdapter("source_a", source_config()).parse_list(html)
+
+    assert [item.external_key for item in page.records] == ["42", "43"]
+
+
 @pytest.mark.small
 def test_list_parser_rejects_paths_outside_detail_template() -> None:
     """A matching identifier cannot widen the approved detail-path boundary."""

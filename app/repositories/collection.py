@@ -22,27 +22,27 @@ class SqlAlchemyCollectionRepository:
         """Bind a factory that gives each record persistence its own transaction."""
         self._sessions = sessions
 
-    def exists(
+    def existing_record_keys(
         self,
         source_key: SourceKey,
         entity_external_key: str,
-        record_external_key: str,
-    ) -> bool:
-        """Check the checkpoint before requesting an article detail page."""
+        record_external_keys: tuple[str, ...],
+    ) -> frozenset[str]:
+        """Check one page of record keys before requesting detail pages."""
+        if not record_external_keys:
+            return frozenset()
         with self._sessions() as session:
-            return (
-                session.scalar(
-                    select(Record.id)
-                    .join(Entity)
-                    .join(Source)
-                    .where(
-                        Source.name == source_key,
-                        Entity.external_key == entity_external_key,
-                        Record.external_key == record_external_key,
-                    )
+            rows = session.scalars(
+                select(Record.external_key)
+                .join(Entity)
+                .join(Source)
+                .where(
+                    Source.name == source_key,
+                    Entity.external_key == entity_external_key,
+                    Record.external_key.in_(record_external_keys),
                 )
-                is not None
             )
+            return frozenset(rows)
 
     def persist(self, record: CollectedRecord) -> bool:
         """Return false for an existing record without duplicating its assets."""

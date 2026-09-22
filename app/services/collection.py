@@ -41,13 +41,13 @@ class CollectionMode(StrEnum):
 class CollectionRepository(Protocol):
     """Persistence checkpoint used by collection workflows."""
 
-    def exists(
+    def existing_record_keys(
         self,
         source_key: SourceKey,
         entity_external_key: str,
-        record_external_key: str,
-    ) -> bool:
-        """Return whether one source entity already owns the record."""
+        record_external_keys: tuple[str, ...],
+    ) -> frozenset[str]:
+        """Return persisted record keys for one source entity."""
 
     def persist(self, record: CollectedRecord) -> bool:
         """Atomically save a record and its assets, returning whether it was new."""
@@ -110,6 +110,7 @@ def collect_all(  # noqa: C901, PLR0912, PLR0913, PLR0915 - explicit workflow bo
         numbered_pages = "{page}" in config.list_path
         page_number = 0
         seen_pages: set[str] = set()
+        seen_record_keys: set[str] = set()
         member_paths: set[str] = set()
         stop_at_checkpoint = False
 
@@ -163,12 +164,20 @@ def collect_all(  # noqa: C901, PLR0912, PLR0913, PLR0915 - explicit workflow bo
                     break
 
                 visited_pages += 1
+                page_keys = tuple(reference.external_key for reference in page.records)
+                existing_keys = (
+                    repository.existing_record_keys(
+                        source_key, source_entity_key, page_keys
+                    )
+                    if source_entity_key is not None
+                    else frozenset()
+                )
                 for reference in page.records:
-                    if source_entity_key is not None and repository.exists(
-                        source_key,
-                        source_entity_key,
-                        reference.external_key,
-                    ):
+                    if reference.external_key in seen_record_keys:
+                        skipped_records += 1
+                        continue
+                    seen_record_keys.add(reference.external_key)
+                    if reference.external_key in existing_keys:
                         skipped_records += 1
                         continue
                     try:
@@ -179,10 +188,17 @@ def collect_all(  # noqa: C901, PLR0912, PLR0913, PLR0915 - explicit workflow bo
                             settings=settings,
                             sleep=sleep,
                         )
-                        if (
-                            source_entity_key is not None
-                            and record.entity_external_key != source_entity_key
+                        if source_entity_key is not None and (
+                            record.entity_external_key != source_entity_key
                         ):
+                            failed_records += 1
+                            failures.append(
+                                _guard_failure(
+                                    "record",
+                                    source_key,
+                                    "detail entity does not match requested entity",
+                                )
+                            )
                             continue
                         created = repository.persist(record)
                     except (
@@ -280,13 +296,10 @@ def collect_all(  # noqa: C901, PLR0912, PLR0913, PLR0915 - explicit workflow bo
                             break
                         member_seen_signatures.add(signature)
                         for reference in archive_page.records:
-                            if source_entity_key is not None and repository.exists(
-                                source_key,
-                                source_entity_key,
-                                reference.external_key,
-                            ):
+                            if reference.external_key in seen_record_keys:
                                 skipped_records += 1
                                 continue
+                            seen_record_keys.add(reference.external_key)
                             try:
                                 record = _fetch_record(
                                     get_html,

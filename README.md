@@ -211,9 +211,10 @@ the database-generated `entities.id`:
 uv run python -m app.collector collect-backfill --source-entity-key 40
 ```
 
-The targeted backfill still discovers the member archive from the configured
-source list, so the member must appear in a list page reachable from
-`SOURCE_A_LIST_PATH` or `SOURCE_B_LIST_PATH`.
+The targeted backfill adds the requested source entity key to the configured
+list path and follows only that member's pagination. Existing record keys are
+checked before detail requests, so already persisted articles are not fetched
+again.
 
 <p align="right">(<a href="#top">back to top</a>)</p>
 

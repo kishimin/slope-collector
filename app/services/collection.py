@@ -71,6 +71,7 @@ def collect_all(  # noqa: C901, PLR0912, PLR0913, PLR0915 - explicit workflow bo
     *,
     settings: Settings,
     source_keys: tuple[SourceKey, ...],
+    source_entity_key: str | None = None,
     mode: CollectionMode,
     repository: CollectionRepository,
     transport: httpx.BaseTransport | None = None,
@@ -159,6 +160,11 @@ def collect_all(  # noqa: C901, PLR0912, PLR0913, PLR0915 - explicit workflow bo
                             settings=settings,
                             sleep=sleep,
                         )
+                        if (
+                            source_entity_key is not None
+                            and record.entity_external_key != source_entity_key
+                        ):
+                            continue
                         created = repository.persist(record)
                     except (
                         FetchPermanentError,
@@ -254,6 +260,11 @@ def collect_all(  # noqa: C901, PLR0912, PLR0913, PLR0915 - explicit workflow bo
                                     settings=settings,
                                     sleep=sleep,
                                 )
+                                if (
+                                    source_entity_key is not None
+                                    and record.entity_external_key != source_entity_key
+                                ):
+                                    continue
                                 created = repository.persist(record)
                             except (
                                 FetchPermanentError,

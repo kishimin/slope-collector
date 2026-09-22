@@ -41,6 +41,35 @@ def test_backfill_command_runs_both_configured_sources(
 
 
 @pytest.mark.small
+def test_backfill_command_passes_source_entity_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The manual command can target one source-owned member identity."""
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        collector,
+        "load_settings",
+        lambda: SimpleNamespace(log_level="INFO"),
+    )
+    monkeypatch.setattr(collector, "create_session_factory", lambda _settings: object())
+    monkeypatch.setattr(
+        collector,
+        "SqlAlchemyCollectionRepository",
+        lambda _sessions: object(),
+    )
+
+    def collect(**kwargs: object) -> CollectionResult:
+        captured.update(kwargs)
+        return CollectionResult()
+
+    monkeypatch.setattr(collector, "collect_all", collect)
+
+    assert collector.main(["collect-backfill", "--source-entity-key", "40"]) == 0
+    assert captured["source_entity_key"] == "40"
+
+
+@pytest.mark.small
 def test_daily_command_selects_incremental_collection_mode(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

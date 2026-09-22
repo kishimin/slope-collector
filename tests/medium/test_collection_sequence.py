@@ -263,6 +263,87 @@ def test_collection_traverses_discovered_member_archive(
 
 
 @pytest.mark.medium
+def test_collection_filters_to_requested_source_entity_key(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A targeted backfill persists only the requested member's history."""
+    values = {
+        "DATABASE_URL": "mysql+pymysql://db/collector",
+        "COLLECTOR_USER_AGENT": "slope-collector-test/1.0 contact@example.invalid",
+        "COLLECTOR_MAX_PAGES": "3",
+        "SOURCE_A_BASE_URL": "https://source.example",
+        "SOURCE_A_LIST_PATH": "/list?page={page}",
+        "SOURCE_A_DETAIL_PATH": "/detail/{record_id}",
+        "SOURCE_A_ALLOWED_CDN_HOSTS": "cdn.example",
+        "SOURCE_A_LIST_ITEM_SELECTOR": ".entry",
+        "SOURCE_A_DETAIL_LINK_SELECTOR": ".detail",
+        "SOURCE_A_TITLE_SELECTOR": ".title",
+        "SOURCE_A_BODY_SELECTOR": ".body",
+        "SOURCE_A_DATE_SELECTOR": ".date",
+        "SOURCE_A_AUTHOR_SELECTOR": ".author",
+        "SOURCE_A_ENTITY_LINK_SELECTOR": ".author-link",
+        "SOURCE_A_ASSET_SELECTOR": ".body img",
+        "SOURCE_A_NEXT_PAGE_SELECTOR": ".next",
+        "SOURCE_A_RECORD_ID_PATTERN": r"/detail/(?P<record_id>\d+)",
+        "SOURCE_A_ENTITY_ID_QUERY_PARAM": "entity",
+        "SOURCE_A_PUBLISHED_AT_FORMAT": "%Y-%m-%d %H:%M",
+    }
+    for name, value in values.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.chdir(tmp_path)
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/list":
+            page = request.url.params.get("page")
+            html = (
+                '<article class="entry"><a class="detail" href="/detail/1">'
+                "Target</a></article>"
+                '<article class="entry"><a class="detail" href="/detail/2">'
+                "Other</a></article>"
+                if page == "0"
+                else "<main></main>"
+            )
+        elif request.url.path == "/author":
+            page = request.url.params.get("page") or "0"
+            html = (
+                '<article class="entry"><a class="detail" href="/detail/3">'
+                "Target history</a></article>"
+                if page == "0"
+                else "<main></main>"
+            )
+        else:
+            record_id = request.url.path.rsplit("/", maxsplit=1)[-1]
+            entity_key = "40" if record_id in {"1", "3"} else "41"
+            html = (
+                f'<h1 class="title">Title {record_id}</h1><time class="date">'
+                '2026-09-18 12:30</time><span class="author">Author</span>'
+                f'<a class="author-link" href="/author?entity={entity_key}">'
+                'Author</a><div class="body"><p>Body</p></div>'
+            )
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/html"},
+            text=html,
+            request=request,
+        )
+
+    repository = RecordingRepository()
+    result = collect_all(
+        settings=load_settings(),
+        source_keys=("source_a",),
+        source_entity_key="40",
+        mode=CollectionMode.BACKFILL,
+        repository=repository,
+        transport=httpx.MockTransport(respond),
+    )
+
+    assert result.failed_records == 0
+    assert result.saved_records == 2
+    assert {record.entity_external_key for record in repository.records} == {"40"}
+
+
+@pytest.mark.medium
 def test_collection_reports_first_entity_archive_parse_failure(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

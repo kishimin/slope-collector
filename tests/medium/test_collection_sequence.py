@@ -17,14 +17,26 @@ if TYPE_CHECKING:
 class RecordingRepository:
     """Minimal persistence double for historical page traversal."""
 
-    def __init__(self) -> None:
+    def __init__(self, existing_external_keys: set[str] | None = None) -> None:
         """Initialize the collected record list."""
         self.records: list[CollectedRecord] = []
+        self.existing_external_keys = existing_external_keys or set()
 
     def persist(self, record: CollectedRecord) -> bool:
         """Record each unique historical item."""
         self.records.append(record)
         return True
+
+    def exists(
+        self,
+        _source_key: str,
+        _entity_external_key: str,
+        record_external_key: str,
+    ) -> bool:
+        """Report whether a record was already recorded by this test double."""
+        return record_external_key in self.existing_external_keys or any(
+            record.external_key == record_external_key for record in self.records
+        )
 
 
 @pytest.mark.medium
@@ -292,17 +304,22 @@ def test_collection_filters_to_requested_source_entity_key(
     for name, value in values.items():
         monkeypatch.setenv(name, value)
     monkeypatch.chdir(tmp_path)
+    detail_requests: list[str] = []
 
     def respond(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/list":
             page = request.url.params.get("page")
+            assert request.url.params.get("entity") == "40"
             html = (
                 '<article class="entry"><a class="detail" href="/detail/1">'
                 "Target</a></article>"
-                '<article class="entry"><a class="detail" href="/detail/2">'
-                "Other</a></article>"
                 if page == "0"
-                else "<main></main>"
+                else (
+                    '<article class="entry"><a class="detail" href="/detail/3">'
+                    "Target history</a></article>"
+                    if page == "1"
+                    else "<main></main>"
+                )
             )
         elif request.url.path == "/author":
             page = request.url.params.get("page") or "0"
@@ -314,6 +331,7 @@ def test_collection_filters_to_requested_source_entity_key(
             )
         else:
             record_id = request.url.path.rsplit("/", maxsplit=1)[-1]
+            detail_requests.append(record_id)
             entity_key = "40" if record_id in {"1", "3"} else "41"
             html = (
                 f'<h1 class="title">Title {record_id}</h1><time class="date">'
@@ -328,7 +346,7 @@ def test_collection_filters_to_requested_source_entity_key(
             request=request,
         )
 
-    repository = RecordingRepository()
+    repository = RecordingRepository(existing_external_keys={"1"})
     result = collect_all(
         settings=load_settings(),
         source_keys=("source_a",),
@@ -339,8 +357,10 @@ def test_collection_filters_to_requested_source_entity_key(
     )
 
     assert result.failed_records == 0
-    expected_saved_records = 2
+    expected_saved_records = 1
     assert result.saved_records == expected_saved_records
+    assert result.skipped_records == 1
+    assert detail_requests == ["3"]
     assert {record.entity_external_key for record in repository.records} == {"40"}
 
 

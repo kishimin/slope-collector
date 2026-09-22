@@ -17,6 +17,15 @@ if TYPE_CHECKING:
 class RecordingRepository:
     """Minimal checkpoint double for pagination boundary coverage."""
 
+    def existing_record_keys(
+        self,
+        _source_key: str,
+        _entity_external_key: str,
+        _record_external_keys: tuple[str, ...],
+    ) -> frozenset[str]:
+        """Expose an empty persisted checkpoint for this scenario."""
+        return frozenset()
+
     def persist(self, _record: CollectedRecord) -> bool:
         """Accept the valid record found before the page ceiling."""
         return True

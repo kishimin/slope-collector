@@ -208,7 +208,7 @@ backfill command. This is the source key stored in `entities.external_key`, not
 the database-generated `entities.id`:
 
 ```powershell
-uv run python -m app.collector collect-backfill --source-entity-key 40
+uv run python -m app.collector collect-backfill --source source_a --source-entity-key 40
 ```
 
 The targeted backfill adds the requested source entity key to the configured

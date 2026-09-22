@@ -65,7 +65,19 @@ def test_backfill_command_passes_source_entity_key(
 
     monkeypatch.setattr(collector, "collect_all", collect)
 
-    assert collector.main(["collect-backfill", "--source-entity-key", "40"]) == 0
+    assert (
+        collector.main(
+            [
+                "collect-backfill",
+                "--source",
+                "source_a",
+                "--source-entity-key",
+                "40",
+            ]
+        )
+        == 0
+    )
+    assert captured["source_keys"] == ("source_a",)
     assert captured["source_entity_key"] == "40"
 
 

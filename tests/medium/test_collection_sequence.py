@@ -339,7 +339,8 @@ def test_collection_filters_to_requested_source_entity_key(
     )
 
     assert result.failed_records == 0
-    assert result.saved_records == 2
+    expected_saved_records = 2
+    assert result.saved_records == expected_saved_records
     assert {record.entity_external_key for record in repository.records} == {"40"}
 
 

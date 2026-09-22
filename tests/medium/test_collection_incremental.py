@@ -19,6 +19,15 @@ if TYPE_CHECKING:
 class CheckpointRepository:
     """Store stable record keys to model a persisted collection checkpoint."""
 
+    def existing_record_keys(
+        self,
+        _source_key: str,
+        _entity_external_key: str,
+        _record_external_keys: tuple[str, ...],
+    ) -> frozenset[str]:
+        """Return no preloaded page keys; persist models the checkpoint."""
+        return frozenset()
+
     def __init__(self) -> None:
         """Initialize an empty checkpoint."""
         self.keys: set[str] = set()

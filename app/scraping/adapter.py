@@ -60,16 +60,20 @@ class SourceAdapter:
         records: list[RecordReference] = []
         seen: set[str] = set()
         for item in soup.select(self._config.selectors.list_item):
-            link = item.select_one(self._config.selectors.detail_link)
-            href = link.get("href") if isinstance(link, Tag) else None
-            if not isinstance(href, str):
+            links = item.select(self._config.selectors.detail_link)
+            if not links:
                 message = "required element is missing"
                 raise ParseContractError(message)
-            source_path = self._source_path(href)
-            external_key = self._record_id(source_path)
-            if external_key not in seen:
-                seen.add(external_key)
-                records.append(RecordReference(external_key, source_path))
+            for link in links:
+                href = link.get("href") if isinstance(link, Tag) else None
+                if not isinstance(href, str):
+                    message = "required element is missing"
+                    raise ParseContractError(message)
+                source_path = self._source_path(href)
+                external_key = self._record_id(source_path)
+                if external_key not in seen:
+                    seen.add(external_key)
+                    records.append(RecordReference(external_key, source_path))
 
         if not records:
             message = "required element is missing"

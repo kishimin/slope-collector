@@ -203,6 +203,19 @@ uv run python -m app.collector collect-daily
 
 Run collection only against an intentionally configured local or deployment database. `collect-backfill` and `collect-daily` are separate processes from FastAPI.
 
+To backfill one source-owned member, pass its source identity key to the manual
+backfill command. This is the source key stored in `entities.external_key`, not
+the database-generated `entities.id`:
+
+```powershell
+uv run python -m app.collector collect-backfill --source source_a --source-entity-key 40
+```
+
+The targeted backfill adds the requested source entity key to the configured
+list path and follows only that member's pagination. Existing record keys are
+checked before detail requests, so already persisted articles are not fetched
+again.
+
 <p align="right">(<a href="#top">back to top</a>)</p>
 
 ## API Endpoints

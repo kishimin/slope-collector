@@ -29,7 +29,20 @@ def main(arguments: Sequence[str] | None = None) -> int:
         "command",
         choices=("collect-backfill", "collect-daily"),
     )
+    parser.add_argument(
+        "--source-entity-key",
+        help="Collect one source-owned member identity during a backfill.",
+    )
+    parser.add_argument(
+        "--source",
+        choices=SOURCE_KEYS,
+        help="Run collection for one configured source.",
+    )
     parsed = parser.parse_args(arguments)
+    if parsed.source_entity_key is not None and parsed.source is None:
+        parser.error("--source-entity-key requires --source")
+    if parsed.source_entity_key is not None and parsed.command != "collect-backfill":
+        parser.error("--source-entity-key requires collect-backfill")
     mode = (
         CollectionMode.BACKFILL
         if parsed.command == "collect-backfill"
@@ -40,9 +53,11 @@ def main(arguments: Sequence[str] | None = None) -> int:
     for logger_name in ("httpcore", "httpx"):
         logging.getLogger(logger_name).setLevel(logging.WARNING)
     repository = SqlAlchemyCollectionRepository(create_session_factory(settings))
+    source_keys = (parsed.source,) if parsed.source is not None else SOURCE_KEYS
     result = collect_all(
         settings=settings,
-        source_keys=SOURCE_KEYS,
+        source_keys=source_keys,
+        source_entity_key=parsed.source_entity_key,
         mode=mode,
         repository=repository,
         sleep=time.sleep,

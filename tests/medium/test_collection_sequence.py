@@ -17,14 +17,27 @@ if TYPE_CHECKING:
 class RecordingRepository:
     """Minimal persistence double for historical page traversal."""
 
-    def __init__(self) -> None:
+    def __init__(self, existing_external_keys: set[str] | None = None) -> None:
         """Initialize the collected record list."""
         self.records: list[CollectedRecord] = []
+        self.existing_external_keys = existing_external_keys or set()
 
     def persist(self, record: CollectedRecord) -> bool:
         """Record each unique historical item."""
         self.records.append(record)
         return True
+
+    def existing_record_keys(
+        self,
+        _source_key: str,
+        _entity_external_key: str,
+        record_external_keys: tuple[str, ...],
+    ) -> frozenset[str]:
+        """Report which page records were already recorded by this double."""
+        stored = self.existing_external_keys | {
+            record.external_key for record in self.records
+        }
+        return frozenset(key for key in record_external_keys if key in stored)
 
 
 @pytest.mark.medium
@@ -101,10 +114,10 @@ def test_collection_uses_numbered_pages_until_empty(
         transport=httpx.MockTransport(respond),
     )
 
-    expected_records = 3
+    expected_records = 2
     assert result.saved_records == expected_records
     assert result.failed_records == 0
-    assert result.visited_pages == expected_records
+    assert result.visited_pages == expected_records + 1
     assert repository.records[0].entity_path == "/author?entity=7"
 
 
@@ -258,8 +271,98 @@ def test_collection_traverses_discovered_member_archive(
 
     assert result.failed_records == 0
     assert result.visited_pages == expected_page_count
-    assert len(repository.records) == expected_page_count
+    assert len(repository.records) == expected_page_count - 1
     assert any(record.source_path == "/detail/3" for record in repository.records)
+
+
+@pytest.mark.medium
+def test_collection_filters_to_requested_source_entity_key(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A targeted backfill persists only the requested member's history."""
+    values = {
+        "DATABASE_URL": "mysql+pymysql://db/collector",
+        "COLLECTOR_USER_AGENT": "slope-collector-test/1.0 contact@example.invalid",
+        "COLLECTOR_MAX_PAGES": "3",
+        "SOURCE_A_BASE_URL": "https://source.example",
+        "SOURCE_A_LIST_PATH": "/list",
+        "SOURCE_A_DETAIL_PATH": "/detail/{record_id}",
+        "SOURCE_A_ALLOWED_CDN_HOSTS": "cdn.example",
+        "SOURCE_A_LIST_ITEM_SELECTOR": ".entry",
+        "SOURCE_A_DETAIL_LINK_SELECTOR": ".detail",
+        "SOURCE_A_TITLE_SELECTOR": ".title",
+        "SOURCE_A_BODY_SELECTOR": ".body",
+        "SOURCE_A_DATE_SELECTOR": ".date",
+        "SOURCE_A_AUTHOR_SELECTOR": ".author",
+        "SOURCE_A_ENTITY_LINK_SELECTOR": ".author-link",
+        "SOURCE_A_ASSET_SELECTOR": ".body img",
+        "SOURCE_A_NEXT_PAGE_SELECTOR": ".next",
+        "SOURCE_A_RECORD_ID_PATTERN": r"/detail/(?P<record_id>\d+)",
+        "SOURCE_A_ENTITY_ID_QUERY_PARAM": "entity",
+        "SOURCE_A_PUBLISHED_AT_FORMAT": "%Y-%m-%d %H:%M",
+    }
+    for name, value in values.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.chdir(tmp_path)
+    detail_requests: list[str] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/list":
+            assert request.url.params.get("entity") == "40"
+            page = request.url.params.get("page") or "0"
+            html = (
+                '<article class="entry"><a class="detail" href="/detail/1">'
+                'Target</a></article><a class="next" href="/list?page=1">Next</a>'
+                if page == "0"
+                else (
+                    '<article class="entry"><a class="detail" href="/detail/3">'
+                    "Target history</a></article>"
+                    if page == "1"
+                    else "<main></main>"
+                )
+            )
+        elif request.url.path == "/author":
+            page = request.url.params.get("page") or "0"
+            html = (
+                '<article class="entry"><a class="detail" href="/detail/3">'
+                "Target history</a></article>"
+                if page == "0"
+                else "<main></main>"
+            )
+        else:
+            record_id = request.url.path.rsplit("/", maxsplit=1)[-1]
+            detail_requests.append(record_id)
+            entity_key = "40" if record_id in {"1", "3"} else "41"
+            html = (
+                f'<h1 class="title">Title {record_id}</h1><time class="date">'
+                '2026-09-18 12:30</time><span class="author">Author</span>'
+                f'<a class="author-link" href="/author?entity={entity_key}">'
+                'Author</a><div class="body"><p>Body</p></div>'
+            )
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/html"},
+            text=html,
+            request=request,
+        )
+
+    repository = RecordingRepository(existing_external_keys={"1"})
+    result = collect_all(
+        settings=load_settings(),
+        source_keys=("source_a",),
+        source_entity_key="40",
+        mode=CollectionMode.BACKFILL,
+        repository=repository,
+        transport=httpx.MockTransport(respond),
+    )
+
+    assert result.failed_records == 0
+    expected_saved_records = 1
+    assert result.saved_records == expected_saved_records
+    assert result.skipped_records == 1
+    assert detail_requests == ["3"]
+    assert {record.entity_external_key for record in repository.records} == {"40"}
 
 
 @pytest.mark.medium

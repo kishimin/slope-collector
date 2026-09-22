@@ -11,6 +11,7 @@ from app.models.collection import Asset, Entity, Record, Source
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session, sessionmaker
 
+    from app.config import SourceKey
     from app.scraping.domain import CollectedRecord
 
 
@@ -20,6 +21,28 @@ class SqlAlchemyCollectionRepository:
     def __init__(self, sessions: sessionmaker[Session]) -> None:
         """Bind a factory that gives each record persistence its own transaction."""
         self._sessions = sessions
+
+    def existing_record_keys(
+        self,
+        source_key: SourceKey,
+        entity_external_key: str,
+        record_external_keys: tuple[str, ...],
+    ) -> frozenset[str]:
+        """Check one page of record keys before requesting detail pages."""
+        if not record_external_keys:
+            return frozenset()
+        with self._sessions() as session:
+            rows = session.scalars(
+                select(Record.external_key)
+                .join(Entity)
+                .join(Source)
+                .where(
+                    Source.name == source_key,
+                    Entity.external_key == entity_external_key,
+                    Record.external_key.in_(record_external_keys),
+                )
+            )
+            return frozenset(rows)
 
     def persist(self, record: CollectedRecord) -> bool:
         """Return false for an existing record without duplicating its assets."""

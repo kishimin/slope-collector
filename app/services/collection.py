@@ -41,6 +41,14 @@ class CollectionMode(StrEnum):
 class CollectionRepository(Protocol):
     """Persistence checkpoint used by collection workflows."""
 
+    def existing_record_keys(
+        self,
+        source_key: SourceKey,
+        entity_external_key: str,
+        record_external_keys: tuple[str, ...],
+    ) -> frozenset[str]:
+        """Return persisted record keys for one source entity."""
+
     def persist(self, record: CollectedRecord) -> bool:
         """Atomically save a record and its assets, returning whether it was new."""
 
@@ -71,6 +79,7 @@ def collect_all(  # noqa: C901, PLR0912, PLR0913, PLR0915 - explicit workflow bo
     *,
     settings: Settings,
     source_keys: tuple[SourceKey, ...],
+    source_entity_key: str | None = None,
     mode: CollectionMode,
     repository: CollectionRepository,
     transport: httpx.BaseTransport | None = None,
@@ -93,10 +102,15 @@ def collect_all(  # noqa: C901, PLR0912, PLR0913, PLR0915 - explicit workflow bo
             response_timeout_seconds=settings.collector_response_timeout_seconds,
             max_response_bytes=settings.collector_max_response_bytes,
         )
-        page_path: str | None = config.list_path.format(page=0)
+        page_path: str | None = _initial_list_path(
+            config.list_path,
+            entity_id_query_param=config.entity_id_query_param,
+            source_entity_key=source_entity_key,
+        )
         numbered_pages = "{page}" in config.list_path
         page_number = 0
         seen_pages: set[str] = set()
+        seen_record_keys: set[str] = set()
         member_paths: set[str] = set()
         stop_at_checkpoint = False
 
@@ -150,7 +164,22 @@ def collect_all(  # noqa: C901, PLR0912, PLR0913, PLR0915 - explicit workflow bo
                     break
 
                 visited_pages += 1
+                page_keys = tuple(reference.external_key for reference in page.records)
+                existing_keys = (
+                    repository.existing_record_keys(
+                        source_key, source_entity_key, page_keys
+                    )
+                    if source_entity_key is not None
+                    else frozenset()
+                )
                 for reference in page.records:
+                    if reference.external_key in seen_record_keys:
+                        skipped_records += 1
+                        continue
+                    seen_record_keys.add(reference.external_key)
+                    if reference.external_key in existing_keys:
+                        skipped_records += 1
+                        continue
                     try:
                         record = _fetch_record(
                             get_html,
@@ -159,6 +188,18 @@ def collect_all(  # noqa: C901, PLR0912, PLR0913, PLR0915 - explicit workflow bo
                             settings=settings,
                             sleep=sleep,
                         )
+                        if source_entity_key is not None and (
+                            record.entity_external_key != source_entity_key
+                        ):
+                            failed_records += 1
+                            failures.append(
+                                _guard_failure(
+                                    "record",
+                                    source_key,
+                                    "detail entity does not match requested entity",
+                                )
+                            )
+                            continue
                         created = repository.persist(record)
                     except (
                         FetchPermanentError,
@@ -180,11 +221,28 @@ def collect_all(  # noqa: C901, PLR0912, PLR0913, PLR0915 - explicit workflow bo
                         member_paths.add(record.entity_path)
                 if numbered_pages:
                     page_number += 1
-                    page_path = config.list_path.format(page=page_number)
+                    page_path = _numbered_list_path(
+                        config.list_path,
+                        page=page_number,
+                        entity_id_query_param=config.entity_id_query_param,
+                        source_entity_key=source_entity_key,
+                    )
                 else:
-                    page_path = page.next_path
+                    page_path = (
+                        _with_entity_query(
+                            page.next_path,
+                            entity_id_query_param=config.entity_id_query_param,
+                            source_entity_key=source_entity_key,
+                        )
+                        if page.next_path is not None and source_entity_key is not None
+                        else page.next_path
+                    )
 
-            if mode is CollectionMode.BACKFILL and not stop_at_checkpoint:
+            if (
+                mode is CollectionMode.BACKFILL
+                and source_entity_key is None
+                and not stop_at_checkpoint
+            ):
                 for member_path in sorted(member_paths):
                     member_page_number = 0
                     archive_page_path: str | None = member_path
@@ -246,6 +304,10 @@ def collect_all(  # noqa: C901, PLR0912, PLR0913, PLR0915 - explicit workflow bo
                             break
                         member_seen_signatures.add(signature)
                         for reference in archive_page.records:
+                            if reference.external_key in seen_record_keys:
+                                skipped_records += 1
+                                continue
+                            seen_record_keys.add(reference.external_key)
                             try:
                                 record = _fetch_record(
                                     get_html,
@@ -254,6 +316,11 @@ def collect_all(  # noqa: C901, PLR0912, PLR0913, PLR0915 - explicit workflow bo
                                     settings=settings,
                                     sleep=sleep,
                                 )
+                                if (
+                                    source_entity_key is not None
+                                    and record.entity_external_key != source_entity_key
+                                ):
+                                    continue
                                 created = repository.persist(record)
                             except (
                                 FetchPermanentError,
@@ -414,6 +481,56 @@ def _numbered_page_path(path: str, page: int) -> str:
     parsed = urlsplit(path)
     query = dict(parse_qsl(parsed.query, keep_blank_values=True))
     query["page"] = str(page)
+    return urlunsplit(
+        (parsed.scheme, parsed.netloc, parsed.path, urlencode(query), parsed.fragment)
+    )
+
+
+def _initial_list_path(
+    path: str,
+    *,
+    entity_id_query_param: str,
+    source_entity_key: str | None,
+) -> str:
+    """Add the requested source entity to the first list request."""
+    formatted_path = path.format(page=0)
+    if source_entity_key is None:
+        return formatted_path
+    return _with_entity_query(
+        formatted_path,
+        entity_id_query_param=entity_id_query_param,
+        source_entity_key=source_entity_key,
+    )
+
+
+def _numbered_list_path(
+    path: str,
+    *,
+    page: int,
+    entity_id_query_param: str,
+    source_entity_key: str | None,
+) -> str:
+    """Build one numbered list request while retaining the target entity."""
+    formatted_path = path.format(page=page)
+    if source_entity_key is None:
+        return formatted_path
+    return _with_entity_query(
+        formatted_path,
+        entity_id_query_param=entity_id_query_param,
+        source_entity_key=source_entity_key,
+    )
+
+
+def _with_entity_query(
+    path: str,
+    *,
+    entity_id_query_param: str,
+    source_entity_key: str,
+) -> str:
+    """Set the configured source entity query without changing other filters."""
+    parsed = urlsplit(path)
+    query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+    query[entity_id_query_param] = source_entity_key
     return urlunsplit(
         (parsed.scheme, parsed.netloc, parsed.path, urlencode(query), parsed.fragment)
     )

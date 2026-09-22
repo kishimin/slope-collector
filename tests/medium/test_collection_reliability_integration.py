@@ -21,6 +21,15 @@ if TYPE_CHECKING:
 class RecordingRepository:
     """Accept records while exposing the collector's observable result."""
 
+    def existing_record_keys(
+        self,
+        _source_key: str,
+        _entity_external_key: str,
+        _record_external_keys: tuple[str, ...],
+    ) -> frozenset[str]:
+        """Expose an empty persisted checkpoint for this scenario."""
+        return frozenset()
+
     def __init__(self) -> None:
         """Initialize an empty record list."""
         self.records: list[CollectedRecord] = []

@@ -286,7 +286,7 @@ def test_collection_filters_to_requested_source_entity_key(
         "COLLECTOR_USER_AGENT": "slope-collector-test/1.0 contact@example.invalid",
         "COLLECTOR_MAX_PAGES": "3",
         "SOURCE_A_BASE_URL": "https://source.example",
-        "SOURCE_A_LIST_PATH": "/list?page={page}",
+        "SOURCE_A_LIST_PATH": "/list",
         "SOURCE_A_DETAIL_PATH": "/detail/{record_id}",
         "SOURCE_A_ALLOWED_CDN_HOSTS": "cdn.example",
         "SOURCE_A_LIST_ITEM_SELECTOR": ".entry",
@@ -309,11 +309,11 @@ def test_collection_filters_to_requested_source_entity_key(
 
     def respond(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/list":
-            page = request.url.params.get("page")
             assert request.url.params.get("entity") == "40"
+            page = request.url.params.get("page") or "0"
             html = (
                 '<article class="entry"><a class="detail" href="/detail/1">'
-                "Target</a></article>"
+                'Target</a></article><a class="next" href="/list?page=1">Next</a>'
                 if page == "0"
                 else (
                     '<article class="entry"><a class="detail" href="/detail/3">'

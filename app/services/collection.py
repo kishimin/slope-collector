@@ -228,7 +228,15 @@ def collect_all(  # noqa: C901, PLR0912, PLR0913, PLR0915 - explicit workflow bo
                         source_entity_key=source_entity_key,
                     )
                 else:
-                    page_path = page.next_path
+                    page_path = (
+                        _with_entity_query(
+                            page.next_path,
+                            entity_id_query_param=config.entity_id_query_param,
+                            source_entity_key=source_entity_key,
+                        )
+                        if page.next_path is not None and source_entity_key is not None
+                        else page.next_path
+                    )
 
             if (
                 mode is CollectionMode.BACKFILL

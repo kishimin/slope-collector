@@ -11,7 +11,6 @@ from app.models.collection import Asset, Entity, Record, Source
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session, sessionmaker
 
-    from app.config import SourceKey
     from app.scraping.domain import CollectedRecord
 
 
@@ -24,7 +23,7 @@ class SqlAlchemyCollectionRepository:
 
     def existing_record_keys(
         self,
-        source_key: SourceKey,
+        source_name: str,
         entity_external_key: str,
         record_external_keys: tuple[str, ...],
     ) -> frozenset[str]:
@@ -37,7 +36,7 @@ class SqlAlchemyCollectionRepository:
                 .join(Entity)
                 .join(Source)
                 .where(
-                    Source.name == source_key,
+                    Source.name == source_name,
                     Entity.external_key == entity_external_key,
                     Record.external_key.in_(record_external_keys),
                 )
@@ -46,12 +45,18 @@ class SqlAlchemyCollectionRepository:
 
     def persist(self, record: CollectedRecord) -> bool:
         """Return false for an existing record without duplicating its assets."""
+        source_name = record.source_name or record.source_key
         with self._sessions.begin() as session:
-            source = session.scalar(
-                select(Source).where(Source.name == record.source_key)
-            )
+            source = session.scalar(select(Source).where(Source.name == source_name))
+            if source is None and source_name != record.source_key:
+                source = session.scalar(
+                    select(Source).where(Source.name == record.source_key)
+                )
+                if source is not None:
+                    source.name = source_name
+                    session.flush()
             if source is None:
-                source = Source(name=record.source_key)
+                source = Source(name=source_name)
                 session.add(source)
                 session.flush()
 

@@ -127,6 +127,7 @@ class SourceAdapter:
             published_at=published_at,
             assets=assets,
             entity_path=entity_path,
+            source_name=self._config.name,
         )
 
     @staticmethod

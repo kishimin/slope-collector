@@ -43,8 +43,19 @@ class RecordListItem(BaseModel):
     id: int
     entity_id: int
     title: str
+    body: str
     source_url: str
     published_at: datetime_module.datetime
+
+
+class EntityRecordResponse(BaseModel):
+    """Title and body returned for all records belonging to one entity."""
+
+    model_config = ConfigDict(frozen=True)
+
+    id: int
+    title: str
+    body: str
 
 
 class AssetResponse(BaseModel):
@@ -99,6 +110,14 @@ class RecordsResponse(BaseModel):
     pagination: PaginationResponse
 
 
+class EntityRecordsResponse(BaseModel):
+    """Collection response for all records belonging to one entity."""
+
+    model_config = ConfigDict(frozen=True)
+
+    records: list[EntityRecordResponse]
+
+
 def create_records_router(  # noqa: C901
     sessions: sessionmaker[Session],
 ) -> APIRouter:
@@ -131,6 +150,29 @@ def create_records_router(  # noqa: C901
         if entity is None:
             raise _not_found()
         return _entity_response(entity)
+
+    @router.get(
+        "/entities/{entity_id}/records",
+        response_model=EntityRecordsResponse,
+    )
+    async def list_entity_records(
+        entity_id: Annotated[int, Path(ge=1)],
+    ) -> EntityRecordsResponse:
+        with sessions() as session:
+            entity = session.get(Entity, entity_id)
+            if entity is None:
+                raise _not_found()
+            rows = session.scalars(
+                select(Record)
+                .where(Record.entity_id == entity_id)
+                .order_by(Record.published_at.desc(), Record.id.desc())
+            ).all()
+        return EntityRecordsResponse(
+            records=[
+                EntityRecordResponse(id=row.id, title=row.title, body=row.body)
+                for row in rows
+            ]
+        )
 
     @router.get("/records", response_model=RecordsResponse)
     async def list_records(
@@ -190,7 +232,6 @@ def create_records_router(  # noqa: C901
             raise _not_found()
         return RecordDetailResponse(
             **_record_list_response(record).model_dump(),
-            body=record.body,
             assets=[
                 AssetResponse(
                     id=asset.id, source_url=asset.source_url, position=asset.position
@@ -216,6 +257,7 @@ def _record_list_response(record: Record) -> RecordListItem:
         id=record.id,
         entity_id=record.entity_id,
         title=record.title,
+        body=record.body,
         source_url=record.source_url,
         published_at=_as_utc(record.published_at),
     )

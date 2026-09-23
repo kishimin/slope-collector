@@ -49,6 +49,7 @@ class SourceSelectors(BaseModel):
 class SourceConfig(BaseModel):
     """Validated private configuration for one collection source."""
 
+    name: str = Field(max_length=255)
     base_url: AnyHttpUrl
     list_path: str
     detail_path: str
@@ -111,6 +112,7 @@ class PrivateSourceSettings(BaseSettings):
         hide_input_in_errors=True,
     )
 
+    name: SecretStr = SecretStr("")
     base_url: SecretStr
     list_path: SecretStr
     detail_path: SecretStr
@@ -224,6 +226,7 @@ def load_source_config(settings: Settings, source_key: SourceKey) -> SourceConfi
 
         return SourceConfig.model_validate(
             {
+                "name": value(private.name) or source_key,
                 "base_url": value(private.base_url),
                 "list_path": value(private.list_path),
                 "detail_path": value(private.detail_path),

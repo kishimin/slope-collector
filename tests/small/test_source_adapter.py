@@ -13,6 +13,7 @@ def source_config() -> SourceConfig:
     """Return an anonymous source contract for parser tests."""
     return SourceConfig.model_validate(
         {
+            "name": "source_a",
             "base_url": "https://source.example",
             "list_path": "/list?page={page}",
             "detail_path": "/detail/{record_id}",

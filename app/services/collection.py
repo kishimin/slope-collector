@@ -43,7 +43,7 @@ class CollectionRepository(Protocol):
 
     def existing_record_keys(
         self,
-        source_key: SourceKey,
+        source_name: str,
         entity_external_key: str,
         record_external_keys: tuple[str, ...],
     ) -> frozenset[str]:
@@ -167,7 +167,7 @@ def collect_all(  # noqa: C901, PLR0912, PLR0913, PLR0915 - explicit workflow bo
                 page_keys = tuple(reference.external_key for reference in page.records)
                 existing_keys = (
                     repository.existing_record_keys(
-                        source_key, source_entity_key, page_keys
+                        config.name, source_entity_key, page_keys
                     )
                     if source_entity_key is not None
                     else frozenset()

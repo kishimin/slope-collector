@@ -36,6 +36,15 @@ class RecordingRepository:
         self.identifiers.add(identifier)
         return True
 
+    def existing_record_keys(
+        self,
+        _source_name: str,
+        _entity_external_key: str,
+        _record_external_keys: tuple[str, ...],
+    ) -> frozenset[str]:
+        """Return no preloaded keys for the acceptance checkpoint."""
+        return frozenset()
+
 
 @pytest.mark.medium
 def test_backfill_reports_incomplete_when_history_never_reaches_natural_end(

@@ -228,6 +228,7 @@ Development record routes are enabled only when `ENVIRONMENT=development`. Produ
 | `GET` | `/sources` | List configured source names. |
 | `GET` | `/entities` | List entities; optionally filter with `source_id`. |
 | `GET` | `/entities/{entity_id}` | Return one entity or `404`. |
+| `GET` | `/entities/{entity_id}/records` | Return all titles and bodies for one entity, or `404`. |
 | `GET` | `/records` | List records with entity, date, and pagination filters. |
 | `GET` | `/records/{record_id}` | Return one record with body and assets, or `404`. |
 
@@ -240,6 +241,12 @@ Development record routes are enabled only when `ENVIRONMENT=development`. Produ
 | `to` | No | - | Inclusive publication date upper bound. |
 | `limit` | No | `20` | Page size from `1` to `100`. |
 | `offset` | No | `0` | Number of records to skip; must be non-negative. |
+
+### Entity Record Query
+
+`GET /entities/{entity_id}/records` returns all records for one entity with
+their `id`, `title`, and `body`. The response is not paginated; use the
+general `/records` endpoint when bounded pages are required.
 
 Responses use JSON and UTC ISO 8601 timestamps. Invalid parameters return `422` with `code=VALIDATION_ERROR`; invalid date ranges return `400`; missing resources return `404` with `code=NOT_FOUND`.
 

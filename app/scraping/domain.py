@@ -50,3 +50,4 @@ class CollectedRecord:
     published_at: datetime
     assets: tuple[CollectedAsset, ...]
     entity_path: str = ""
+    source_name: str = ""

@@ -120,6 +120,7 @@ async def test_local_user_can_browse_sources_entities_and_record_details(
                 "id": 2,
                 "entity_id": 2,
                 "title": "Newer example",
+                "body": "<p>Newer body</p>",
                 "source_url": "/records/record-2",
                 "published_at": "2026-02-20T09:30:00Z",
             },
@@ -127,6 +128,7 @@ async def test_local_user_can_browse_sources_entities_and_record_details(
                 "id": 1,
                 "entity_id": 1,
                 "title": "Older example",
+                "body": "<p>Older body</p>",
                 "source_url": "/records/record-1",
                 "published_at": "2026-01-10T08:00:00Z",
             },
@@ -174,6 +176,7 @@ async def test_local_user_can_filter_and_page_record_lists(application: object) 
             "id": 1,
             "entity_id": 1,
             "title": "Older example",
+            "body": "<p>Older body</p>",
             "source_url": "/records/record-1",
             "published_at": "2026-01-10T08:00:00Z",
         }

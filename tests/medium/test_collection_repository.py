@@ -82,6 +82,86 @@ def test_repository_uses_source_entity_identifier_for_checkpoint() -> None:
 
 
 @pytest.mark.medium
+def test_repository_reuses_configured_source_name() -> None:
+    """A configured display name keeps existing source checkpoints reachable."""
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    sessions = sessionmaker(engine)
+    first = replace(collected_record(), source_name="日向坂46")
+    with sessions.begin() as session:
+        source = Source(name="日向坂46")
+        session.add(source)
+        session.flush()
+        entity = Entity(
+            source_id=source.id,
+            external_key=first.entity_external_key,
+            name=first.private_name,
+        )
+        session.add(entity)
+        session.flush()
+        session.add(
+            Record(
+                entity_id=entity.id,
+                external_key=first.external_key,
+                title=first.title,
+                body=first.body_html,
+                source_url=first.source_path,
+                published_at=first.published_at,
+            )
+        )
+
+    repository = SqlAlchemyCollectionRepository(sessions)
+
+    assert repository.persist(first) is False
+    with sessions() as session:
+        assert [source.name for source in session.scalars(select(Source)).all()] == [
+            "日向坂46"
+        ]
+    engine.dispose()
+
+
+@pytest.mark.medium
+def test_repository_renames_fallback_source_when_display_name_is_configured() -> None:
+    """A new display name keeps checkpoints stored under the source key."""
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    sessions = sessionmaker(engine)
+    first = collected_record()
+    with sessions.begin() as session:
+        source = Source(name=first.source_key)
+        session.add(source)
+        session.flush()
+        entity = Entity(
+            source_id=source.id,
+            external_key=first.entity_external_key,
+            name=first.private_name,
+        )
+        session.add(entity)
+        session.flush()
+        session.add(
+            Record(
+                entity_id=entity.id,
+                external_key=first.external_key,
+                title=first.title,
+                body=first.body_html,
+                source_url=first.source_path,
+                published_at=first.published_at,
+            )
+        )
+
+    configured = replace(first, source_name="日向坂46")
+    repository = SqlAlchemyCollectionRepository(sessions)
+
+    assert repository.persist(configured) is False
+    with sessions() as session:
+        assert [source.name for source in session.scalars(select(Source)).all()] == [
+            "日向坂46"
+        ]
+        assert len(session.scalars(select(Record)).all()) == 1
+    engine.dispose()
+
+
+@pytest.mark.medium
 def test_repository_claims_migrated_entity_without_duplicate() -> None:
     """The first collection after upgrade preserves its existing checkpoint."""
     engine = create_engine("sqlite://")

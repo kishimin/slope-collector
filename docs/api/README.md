@@ -70,7 +70,8 @@ Returns `404 Not Found` when the entity does not exist.
 
 ### GET /records
 
-Returns records with optional filters and pagination.
+Returns records with optional filters and pagination. List items include the
+stored body.
 
 #### Query parameters
 
@@ -91,7 +92,7 @@ GET /records?limit=20&offset=20
 
 #### Response
 
-`body` and `assets` are omitted from list responses.
+`assets` are omitted from list responses.
 
 ```json
 {
@@ -100,6 +101,7 @@ GET /records?limit=20&offset=20
       "id": 1,
       "entity_id": 1,
       "title": "...",
+      "body": "...",
       "source_url": "...",
       "published_at": "2026-01-15T12:00:00"
     }
@@ -137,6 +139,35 @@ Returns a single record including its body and assets.
 ```
 
 Returns `404 Not Found` when the record does not exist.
+
+### GET /entities/{entity_id}/records
+
+Returns every record belonging to the specified entity. This endpoint is
+intended for local inspection and returns only the record ID, title, and body;
+it does not apply `limit` or `offset` pagination.
+
+Returns `404 Not Found` when the entity does not exist. An entity without
+records returns an empty `records` array.
+
+#### Example
+
+```text
+GET /entities/1/records
+```
+
+#### Response
+
+```json
+{
+  "records": [
+    {
+      "id": 1,
+      "title": "...",
+      "body": "..."
+    }
+  ]
+}
+```
 
 ## Common Response Rules
 

@@ -91,6 +91,7 @@ def test_source_configuration_is_loaded_from_environment(
 ) -> None:
     """Target-specific transport and HTML contracts stay outside source code."""
     values = {
+        "SOURCE_A_NAME": "Example source",
         "SOURCE_A_BASE_URL": "https://source.example",
         "SOURCE_A_LIST_PATH": "/list?page={page}",
         "SOURCE_A_DETAIL_PATH": "/detail/{record_id}",
@@ -116,6 +117,7 @@ def test_source_configuration_is_loaded_from_environment(
     source = load_source_config(load_settings(), "source_a")
 
     assert str(source.base_url) == "https://source.example/"
+    assert source.name == "Example source"
     assert source.allowed_cdn_hosts == ("cdn.example", "media.example")
     assert source.selectors.title == ".title"
     assert source.record_id_pattern == r"/detail/(?P<record_id>\d+)"

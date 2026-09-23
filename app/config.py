@@ -49,7 +49,7 @@ class SourceSelectors(BaseModel):
 class SourceConfig(BaseModel):
     """Validated private configuration for one collection source."""
 
-    name: str
+    name: str = Field(max_length=255)
     base_url: AnyHttpUrl
     list_path: str
     detail_path: str

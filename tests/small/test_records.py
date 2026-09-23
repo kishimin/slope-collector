@@ -71,11 +71,13 @@ async def test_development_app_lists_stored_records() -> None:
     }
     assert entity_records.status_code == status.HTTP_200_OK
     assert entity_records.json() == {
-        "records": [{
-            "id": 1,
-            "title": "Stored example",
-            "body": "<p>Stored body</p>",
-        }]
+        "records": [
+            {
+                "id": 1,
+                "title": "Stored example",
+                "body": "<p>Stored body</p>",
+            }
+        ]
     }
     engine.dispose()
 

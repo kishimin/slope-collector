@@ -48,6 +48,13 @@ class SqlAlchemyCollectionRepository:
         source_name = record.source_name or record.source_key
         with self._sessions.begin() as session:
             source = session.scalar(select(Source).where(Source.name == source_name))
+            if source is None and source_name != record.source_key:
+                source = session.scalar(
+                    select(Source).where(Source.name == record.source_key)
+                )
+                if source is not None:
+                    source.name = source_name
+                    session.flush()
             if source is None:
                 source = Source(name=source_name)
                 session.add(source)

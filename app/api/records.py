@@ -43,6 +43,7 @@ class RecordListItem(BaseModel):
     id: int
     entity_id: int
     title: str
+    body: str
     source_url: str
     published_at: datetime_module.datetime
 
@@ -190,7 +191,6 @@ def create_records_router(  # noqa: C901
             raise _not_found()
         return RecordDetailResponse(
             **_record_list_response(record).model_dump(),
-            body=record.body,
             assets=[
                 AssetResponse(
                     id=asset.id, source_url=asset.source_url, position=asset.position
@@ -216,6 +216,7 @@ def _record_list_response(record: Record) -> RecordListItem:
         id=record.id,
         entity_id=record.entity_id,
         title=record.title,
+        body=record.body,
         source_url=record.source_url,
         published_at=_as_utc(record.published_at),
     )

@@ -53,6 +53,7 @@ async def test_development_app_lists_stored_records() -> None:
     transport = ASGITransport(app=application)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.get("/records")
+        entity_records = await client.get("/entities/1/records")
 
     assert response.status_code == status.HTTP_200_OK
     assert response.json() == {
@@ -67,6 +68,14 @@ async def test_development_app_lists_stored_records() -> None:
             }
         ],
         "pagination": {"limit": 20, "offset": 0, "total": 1},
+    }
+    assert entity_records.status_code == status.HTTP_200_OK
+    assert entity_records.json() == {
+        "records": [{
+            "id": 1,
+            "title": "Stored example",
+            "body": "<p>Stored body</p>",
+        }]
     }
     engine.dispose()
 

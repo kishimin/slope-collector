@@ -227,6 +227,7 @@ Development record routes are enabled only when `ENVIRONMENT=development`. Produ
 | `GET` | `/health` | Return service availability. |
 | `GET` | `/sources` | List configured source names. |
 | `GET` | `/entities` | List entities; optionally filter with `source_id`. |
+| `GET` | `/entities/all` | List all entity fields, including source keys and timestamps. |
 | `GET` | `/entities/{entity_id}` | Return one entity or `404`. |
 | `GET` | `/entities/{entity_id}/records` | Return all titles and bodies for one entity, or `404`. |
 | `GET` | `/records` | List records with entity, date, and pagination filters. |

@@ -51,6 +51,30 @@ GET /entities?source_id=1
 }
 ```
 
+### GET /entities/all
+
+Returns all entities with every persisted entity field, including the
+source-specific `external_key` and `created_at`/`updated_at` timestamps. Results
+include inactive entities and are ordered by entity ID.
+
+#### Response
+
+```json
+{
+  "entities": [
+    {
+      "id": 1,
+      "source_id": 1,
+      "external_key": "...",
+      "name": "...",
+      "is_active": true,
+      "created_at": "...",
+      "updated_at": "..."
+    }
+  ]
+}
+```
+
 ### GET /entities/{id}
 
 Returns a single entity.

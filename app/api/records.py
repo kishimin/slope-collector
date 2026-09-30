@@ -35,6 +35,14 @@ class EntityResponse(BaseModel):
     is_active: bool
 
 
+class FullEntityResponse(EntityResponse):
+    """All persisted entity columns for local inspection."""
+
+    external_key: str
+    created_at: datetime_module.datetime
+    updated_at: datetime_module.datetime
+
+
 class RecordListItem(BaseModel):
     """Record fields safe for list responses."""
 
@@ -91,6 +99,14 @@ class EntitiesResponse(BaseModel):
     entities: list[EntityResponse]
 
 
+class FullEntitiesResponse(BaseModel):
+    """Collection response with every persisted entity column."""
+
+    model_config = ConfigDict(frozen=True)
+
+    entities: list[FullEntityResponse]
+
+
 class PaginationResponse(BaseModel):
     """Paging metadata for record lists."""
 
@@ -142,6 +158,17 @@ def create_records_router(  # noqa: C901
         with sessions() as session:
             rows = session.scalars(statement).all()
         return EntitiesResponse(entities=[_entity_response(row) for row in rows])
+
+    @router.get("/entities/all", response_model=FullEntitiesResponse)
+    async def list_all_entity_details() -> FullEntitiesResponse:
+        with sessions() as session:
+            rows = session.scalars(select(Entity).order_by(Entity.id)).all()
+        return FullEntitiesResponse(
+            entities=[
+                FullEntityResponse.model_validate(row, from_attributes=True)
+                for row in rows
+            ]
+        )
 
     @router.get("/entities/{entity_id}", response_model=EntityResponse)
     async def get_entity(entity_id: Annotated[int, Path(ge=1)]) -> EntityResponse:

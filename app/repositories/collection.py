@@ -21,6 +21,19 @@ class SqlAlchemyCollectionRepository:
         """Bind a factory that gives each record persistence its own transaction."""
         self._sessions = sessions
 
+    def is_entity_active(self, source_name: str, entity_external_key: str) -> bool:
+        """Treat only explicitly inactive stored members as excluded."""
+        with self._sessions() as session:
+            status = session.scalar(
+                select(Entity.is_active)
+                .join(Source)
+                .where(
+                    Source.name == source_name,
+                    Entity.external_key == entity_external_key,
+                )
+            )
+        return status is not False
+
     def existing_record_keys(
         self,
         source_name: str,

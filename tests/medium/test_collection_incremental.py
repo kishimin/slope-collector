@@ -19,6 +19,10 @@ if TYPE_CHECKING:
 class CheckpointRepository:
     """Store stable record keys to model a persisted collection checkpoint."""
 
+    def is_entity_active(self, _source_name: str, _entity_external_key: str) -> bool:
+        """Treat every fixture member as eligible."""
+        return True
+
     def existing_record_keys(
         self,
         _source_key: str,

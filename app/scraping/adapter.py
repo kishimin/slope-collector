@@ -212,6 +212,9 @@ class SourceAdapter:
             if not isinstance(source, str):
                 message = "asset URL is invalid"
                 raise ParseContractError(message)
+            if urlsplit(source).scheme == "blob":
+                # Browser-scoped URLs cannot be retrieved after the page is fetched.
+                continue
             alt = image.get("alt")
             assets.append(
                 CollectedAsset(
@@ -236,6 +239,13 @@ class SourceAdapter:
             href = element.get("href")
             source = element.get("src")
             alt = element.get("alt")
+            if (
+                element.name == "img"
+                and isinstance(source, str)
+                and urlsplit(source).scheme == "blob"
+            ):
+                element.decompose()
+                continue
             element.attrs.clear()
             if element.name == "a" and isinstance(href, str):
                 # Keep the label, but never preserve an unapproved destination.
@@ -252,7 +262,9 @@ class SourceAdapter:
         return self._relative_path(value, {self._base_host})
 
     def _asset_path(self, value: str) -> str:
-        return self._relative_path(value, set(self._config.allowed_cdn_hosts))
+        return self._relative_path(
+            value, {self._base_host, *self._config.allowed_cdn_hosts}
+        )
 
     @property
     def _base_host(self) -> str:

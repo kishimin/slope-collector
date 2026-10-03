@@ -41,6 +41,9 @@ class CollectionMode(StrEnum):
 class CollectionRepository(Protocol):
     """Persistence checkpoint used by collection workflows."""
 
+    def is_entity_active(self, source_name: str, entity_external_key: str) -> bool:
+        """Return whether a member is eligible for collection."""
+
     def existing_record_keys(
         self,
         source_name: str,
@@ -96,6 +99,11 @@ def collect_all(  # noqa: C901, PLR0912, PLR0913, PLR0915 - explicit workflow bo
     for source_key in source_keys:
         LOGGER.info("collection source started source=%s mode=%s", source_key, mode)
         config = load_source_config(settings, source_key)
+        if source_entity_key is not None and not repository.is_entity_active(
+            config.name, source_entity_key
+        ):
+            LOGGER.info("inactive entity skipped source=%s", source_key)
+            continue
         adapter = SourceAdapter(source_key, config)
         limits = HttpLimits(
             connect_timeout_seconds=settings.collector_connect_timeout_seconds,
@@ -199,6 +207,11 @@ def collect_all(  # noqa: C901, PLR0912, PLR0913, PLR0915 - explicit workflow bo
                                     "detail entity does not match requested entity",
                                 )
                             )
+                            continue
+                        if not repository.is_entity_active(
+                            config.name, record.entity_external_key
+                        ):
+                            skipped_records += 1
                             continue
                         created = repository.persist(record)
                     except (
@@ -320,6 +333,11 @@ def collect_all(  # noqa: C901, PLR0912, PLR0913, PLR0915 - explicit workflow bo
                                     source_entity_key is not None
                                     and record.entity_external_key != source_entity_key
                                 ):
+                                    continue
+                                if not repository.is_entity_active(
+                                    config.name, record.entity_external_key
+                                ):
+                                    skipped_records += 1
                                     continue
                                 created = repository.persist(record)
                             except (

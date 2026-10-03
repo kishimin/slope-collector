@@ -20,6 +20,10 @@ if TYPE_CHECKING:
 class RecordingRepository:
     """Record stable identifiers as an operator-observable checkpoint."""
 
+    def is_entity_active(self, _source_name: str, _entity_external_key: str) -> bool:
+        """Treat every fixture member as eligible."""
+        return True
+
     def __init__(self) -> None:
         """Initialize an empty checkpoint."""
         self.identifiers: set[tuple[str, str, str]] = set()

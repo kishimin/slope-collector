@@ -17,6 +17,10 @@ if TYPE_CHECKING:
 class RecordingRepository:
     """Minimal persistence double for historical page traversal."""
 
+    def is_entity_active(self, _source_name: str, _entity_external_key: str) -> bool:
+        """Treat every fixture member as eligible."""
+        return True
+
     def __init__(self, existing_external_keys: set[str] | None = None) -> None:
         """Initialize the collected record list."""
         self.records: list[CollectedRecord] = []

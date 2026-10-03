@@ -126,6 +126,35 @@ def test_detail_parser_sanitizes_body_and_normalizes_assets() -> None:
 
 
 @pytest.mark.small
+def test_detail_parser_keeps_first_party_images_and_article_with_blob_image() -> None:
+    """Browser-only images cannot prevent collection of available article text."""
+    html = """
+    <article>
+      <h1 class="title">Example title</h1>
+      <time class="date">2026-09-18 12:30</time>
+      <span class="author">Example author</span>
+      <a class="author-link" href="/authors?entity=7">Example author</a>
+      <div class="body">
+        <p>Article text</p>
+        <img src="https://source.example/image/one.jpg" alt="One">
+        <img src="blob:https://source.example/browser-image" alt="Unavailable">
+      </div>
+    </article>
+    """
+
+    record = SourceAdapter("source_a", source_config()).parse_detail(
+        html, source_path="/detail/42"
+    )
+
+    assert "Article text" in record.body_html
+    assert "blob:" not in record.body_html
+    assert "/image/one.jpg" in record.body_html
+    assert [(asset.source_path, asset.position) for asset in record.assets] == [
+        ("/image/one.jpg", 0)
+    ]
+
+
+@pytest.mark.small
 def test_detail_parser_removes_nested_disallowed_elements() -> None:
     """Removing a parent also safely skips its detached descendants."""
     html = """

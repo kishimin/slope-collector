@@ -51,6 +51,24 @@ def test_repository_saves_record_assets_once_in_one_checkpoint() -> None:
 
 
 @pytest.mark.medium
+def test_repository_reports_inactive_members_without_excluding_unknown_members() -> None:
+    """Only an explicitly inactive stored member is excluded from collection."""
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    sessions = sessionmaker(engine)
+    repository = SqlAlchemyCollectionRepository(sessions)
+    assert repository.persist(collected_record()) is True
+    with sessions.begin() as session:
+        entity = session.scalar(select(Entity).where(Entity.external_key == "7"))
+        assert entity is not None
+        entity.is_active = False
+
+    assert repository.is_entity_active("source_a", "7") is False
+    assert repository.is_entity_active("source_a", "8") is True
+    engine.dispose()
+
+
+@pytest.mark.medium
 def test_repository_uses_source_entity_identifier_for_checkpoint() -> None:
     """Display-name collisions and changes preserve distinct stable identities."""
     engine = create_engine("sqlite://")

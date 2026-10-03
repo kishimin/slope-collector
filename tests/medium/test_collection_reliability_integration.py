@@ -21,6 +21,10 @@ if TYPE_CHECKING:
 class RecordingRepository:
     """Accept records while exposing the collector's observable result."""
 
+    def is_entity_active(self, _source_name: str, _entity_external_key: str) -> bool:
+        """Treat every fixture member as eligible."""
+        return True
+
     def existing_record_keys(
         self,
         _source_key: str,
@@ -69,6 +73,86 @@ def configure_source(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     for name, value in values.items():
         monkeypatch.setenv(name, value)
     monkeypatch.chdir(tmp_path)
+
+
+@pytest.mark.medium
+def test_targeted_collection_does_not_request_inactive_member(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """An inactive member is skipped before any source request."""
+    configure_source(monkeypatch, tmp_path)
+    requested_paths: list[str] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        requested_paths.append(request.url.path)
+        return httpx.Response(200, text="<main></main>", request=request)
+
+    class InactiveRepository(RecordingRepository):
+        def is_entity_active(self, _source_name: str, _entity_key: str) -> bool:
+            """Mark the fixture member inactive."""
+            return False
+
+    result = collect_all(
+        settings=load_settings(),
+        source_keys=("source_a",),
+        source_entity_key="7",
+        mode=CollectionMode.BACKFILL,
+        repository=InactiveRepository(),
+        transport=httpx.MockTransport(respond),
+        sleep=lambda _delay: None,
+    )
+
+    assert result.visited_pages == 0
+    assert result.saved_records == 0
+    assert requested_paths == []
+
+
+@pytest.mark.medium
+def test_untargeted_collection_does_not_store_inactive_member(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A source-wide run discards records owned by an inactive member."""
+    configure_source(monkeypatch, tmp_path)
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/list":
+            html = (
+                '<article class="entry"><a class="detail" href="/detail/1">'
+                "Item</a></article>"
+                if request.url.params.get("page") == "0"
+                else "<main></main>"
+            )
+        else:
+            html = (
+                '<h1 class="title">Title</h1><time class="date">'
+                '2026-09-18 12:30</time><span class="author">Author</span>'
+                '<a class="author-link" href="/author?entity=7">Author</a>'
+                '<div class="body"><p>Body</p></div>'
+            )
+        return httpx.Response(
+            200, headers={"content-type": "text/html"}, text=html, request=request
+        )
+
+    class InactiveRepository(RecordingRepository):
+        def is_entity_active(self, _source_name: str, _entity_key: str) -> bool:
+            """Mark the fixture member inactive."""
+            return False
+
+    repository = InactiveRepository()
+    result = collect_all(
+        settings=load_settings(),
+        source_keys=("source_a",),
+        mode=CollectionMode.DAILY,
+        repository=repository,
+        transport=httpx.MockTransport(respond),
+        sleep=lambda _delay: None,
+    )
+
+    assert result.saved_records == 0
+    assert result.skipped_records == 1
+    assert repository.records == []
 
 
 @pytest.mark.medium

@@ -51,7 +51,9 @@ def test_repository_saves_record_assets_once_in_one_checkpoint() -> None:
 
 
 @pytest.mark.medium
-def test_repository_reports_inactive_members_without_excluding_unknown_members() -> None:
+def test_repository_reports_inactive_members_without_excluding_unknown_members() -> (
+    None
+):
     """Only an explicitly inactive stored member is excluded from collection."""
     engine = create_engine("sqlite://")
     Base.metadata.create_all(engine)

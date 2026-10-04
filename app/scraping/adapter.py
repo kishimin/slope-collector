@@ -96,7 +96,7 @@ class SourceAdapter:
 
         title = unicodedata.normalize("NFC", title_element.get_text()).strip()
         private_name = unicodedata.normalize("NFC", author_element.get_text()).strip()
-        if not 1 <= len(title) <= MAX_TITLE_CHARACTERS or not private_name:
+        if len(title) > MAX_TITLE_CHARACTERS or not private_name:
             message = "required text is invalid"
             raise ParseContractError(message)
 

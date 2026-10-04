@@ -84,6 +84,78 @@ async def test_development_app_lists_stored_records() -> None:
 
 @pytest.mark.anyio
 @pytest.mark.small
+async def test_development_app_lists_all_entity_fields() -> None:
+    """The full entity endpoint returns every column, including inactive rows."""
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    sessions = sessionmaker(engine)
+    first_created_at = datetime(2026, 9, 1, 10, 0, 0, tzinfo=UTC)
+    first_updated_at = datetime(2026, 9, 2, 11, 0, 0, tzinfo=UTC)
+    second_created_at = datetime(2026, 9, 3, 12, 0, 0, tzinfo=UTC)
+    second_updated_at = datetime(2026, 9, 4, 13, 0, 0, tzinfo=UTC)
+    with sessions.begin() as session:
+        first_source = Source(name="source_a")
+        second_source = Source(name="source_b")
+        session.add_all([first_source, second_source])
+        session.flush()
+        session.add_all(
+            [
+                Entity(
+                    source_id=first_source.id,
+                    external_key="member-1",
+                    name="First member",
+                    is_active=True,
+                    created_at=first_created_at,
+                    updated_at=first_updated_at,
+                ),
+                Entity(
+                    source_id=second_source.id,
+                    external_key="member-2",
+                    name="Second member",
+                    is_active=False,
+                    created_at=second_created_at,
+                    updated_at=second_updated_at,
+                ),
+            ]
+        )
+
+    settings = Settings(
+        environment="development",
+        database_url=SecretStr("mysql+pymysql://db/collector"),
+    )
+    application = create_app(settings, sessions=sessions)
+    transport = ASGITransport(app=application)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get("/entities/all")
+
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json() == {
+        "entities": [
+            {
+                "id": 1,
+                "source_id": 1,
+                "external_key": "member-1",
+                "name": "First member",
+                "is_active": True,
+                "created_at": "2026-09-01T10:00:00Z",
+                "updated_at": "2026-09-02T11:00:00Z",
+            },
+            {
+                "id": 2,
+                "source_id": 2,
+                "external_key": "member-2",
+                "name": "Second member",
+                "is_active": False,
+                "created_at": "2026-09-03T12:00:00Z",
+                "updated_at": "2026-09-04T13:00:00Z",
+            },
+        ]
+    }
+    engine.dispose()
+
+
+@pytest.mark.anyio
+@pytest.mark.small
 async def test_production_app_does_not_publish_stored_records() -> None:
     """A production application never exposes locally collected records."""
     settings = Settings(

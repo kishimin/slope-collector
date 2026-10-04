@@ -137,8 +137,8 @@ async def test_development_app_lists_all_entity_fields() -> None:
                 "external_key": "member-1",
                 "name": "First member",
                 "is_active": True,
-                "created_at": first_created_at.replace(tzinfo=None).isoformat(),
-                "updated_at": first_updated_at.replace(tzinfo=None).isoformat(),
+                "created_at": "2026-09-01T10:00:00Z",
+                "updated_at": "2026-09-02T11:00:00Z",
             },
             {
                 "id": 2,
@@ -146,8 +146,8 @@ async def test_development_app_lists_all_entity_fields() -> None:
                 "external_key": "member-2",
                 "name": "Second member",
                 "is_active": False,
-                "created_at": second_created_at.replace(tzinfo=None).isoformat(),
-                "updated_at": second_updated_at.replace(tzinfo=None).isoformat(),
+                "created_at": "2026-09-03T12:00:00Z",
+                "updated_at": "2026-09-04T13:00:00Z",
             },
         ]
     }

@@ -164,10 +164,7 @@ def create_records_router(  # noqa: C901
         with sessions() as session:
             rows = session.scalars(select(Entity).order_by(Entity.id)).all()
         return FullEntitiesResponse(
-            entities=[
-                FullEntityResponse.model_validate(row, from_attributes=True)
-                for row in rows
-            ]
+            entities=[_full_entity_response(row) for row in rows]
         )
 
     @router.get("/entities/{entity_id}", response_model=EntityResponse)
@@ -276,6 +273,15 @@ def _entity_response(entity: Entity) -> EntityResponse:
         source_id=entity.source_id,
         name=entity.name,
         is_active=entity.is_active,
+    )
+
+
+def _full_entity_response(entity: Entity) -> FullEntityResponse:
+    return FullEntityResponse(
+        **_entity_response(entity).model_dump(),
+        external_key=entity.external_key,
+        created_at=_as_utc(entity.created_at),
+        updated_at=_as_utc(entity.updated_at),
     )
 
 

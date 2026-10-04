@@ -244,3 +244,25 @@ def test_source_configuration_rejects_non_https_hosts() -> None:
 
     with pytest.raises(ValidationError, match="source URL must use HTTPS"):
         SourceConfig.model_validate(data)
+
+
+@pytest.mark.small
+def test_detail_parser_accepts_an_empty_title() -> None:
+    """Articles without a title still retain their parsed body and metadata."""
+    html = """
+    <article>
+      <h1 class="title"></h1>
+      <time class="date">2026-09-18 12:30</time>
+      <span class="author">Example author</span>
+      <a class="author-link" href="/authors?entity=7">Example author</a>
+      <div class="body"><p>Article text</p></div>
+    </article>
+    """
+
+    record = SourceAdapter("source_a", source_config()).parse_detail(
+        html,
+        source_path="/detail/42",
+    )
+
+    assert record.title == ""
+    assert "Article text" in record.body_html

@@ -81,9 +81,12 @@ def archive_context(monkeypatch: pytest.MonkeyPatch) -> tuple[Settings, ArchiveC
 
 @pytest.mark.medium
 @pytest.mark.parametrize("stored_key", ["7", "legacy:1"])
+@pytest.mark.parametrize("source_name", ["source_a", "Renamed source"])
 def test_archive_backfill_preserves_inactive_identity_and_skips_known_details(
     archive_context: tuple[Settings, ArchiveConfig],
     stored_key: str,
+    source_name: str,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """All archive pages supplement one inactive source-owned member."""
     settings, config = archive_context
@@ -99,6 +102,12 @@ def test_archive_backfill_preserves_inactive_identity_and_skips_known_details(
         entity.is_active = False
         entity.external_key = stored_key
 
+    source = archive_collection.load_source_config(settings, "source_a")
+    monkeypatch.setattr(
+        archive_collection,
+        "load_source_config",
+        lambda *_: source.model_copy(update={"name": source_name}),
+    )
     requested: list[str] = []
 
     def respond(request: httpx.Request) -> httpx.Response:

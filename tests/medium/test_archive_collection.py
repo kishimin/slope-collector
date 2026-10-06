@@ -361,6 +361,7 @@ def test_archive_ambiguous_legacy_members_fail_without_requests_or_identity_chan
         "text",
         "key",
         "page-count",
+        "zero-pages-with-records",
         "empty-list",
         "list-object",
         "detail-object",
@@ -486,6 +487,8 @@ def invalid_list_response(problem: str, request: httpx.Request) -> httpx.Respons
         item["id"] = True
     elif problem == "page-count":
         payload["pages"] = True
+    elif problem == "zero-pages-with-records":
+        payload["pages"] = 0
     elif problem == "empty-list":
         payload["items"] = []
     elif problem == "list-object":

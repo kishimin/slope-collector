@@ -14,7 +14,8 @@ def test_archive_command_requires_targeted_manual_backfill() -> None:
     """An archive cannot be selected for daily or untargeted collection."""
     with pytest.raises(SystemExit) as error:
         collector.main(["collect-daily", "--archive-config", ".env.archive.json"])
-    assert error.value.code == 2
+    expected_usage_error = 2
+    assert error.value.code == expected_usage_error
 
 
 @pytest.mark.small

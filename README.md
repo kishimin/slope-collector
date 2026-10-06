@@ -216,6 +216,31 @@ list path and follows only that member's pagination. Existing record keys are
 checked before detail requests, so already persisted articles are not fetched
 again.
 
+For an inactive member whose official history is unavailable, explicitly select
+a private JSON archive contract:
+
+```powershell
+uv run python -m app.collector collect-backfill --source source_a --source-entity-key 7 --archive-config .env.archive.json
+```
+
+The source entity key belongs to the original source; it can differ from the
+archive member key. The archive file supplies its HTTPS `base_url`, root-relative
+`list_path` (with `{entity_key}` and `{page}`), `detail_path` (with `{record_id}`),
+`entity_key`, `entity_name`, and `fields`. The field mapping names are `records`,
+`pages`, `record_id`, `original_url`, `author`, `title`, `body`, and `published_at`.
+List responses must provide a zero-based paginated record array and a total page
+count; detail responses must provide HTML bodies and timezone-aware ISO timestamps.
+An optional `allowed_cdn_hosts` list approves archive image hosts.
+
+Use an ignored `.env.*.json` file for real URLs, field mappings and member values.
+Archive recovery preserves original article identifiers and paths, skips existing
+details, checks both list and detail authors, and uses the same bounded, paced,
+serial transport and body sanitization as official collection. Existing member
+activity remains unchanged; newly discovered archive members are inactive.
+Daily collection continues to exclude inactive members. Pagination or article
+failures produce a nonzero exit status; rerun the same command to supplement
+successfully saved checkpoints.
+
 <p align="right">(<a href="#top">back to top</a>)</p>
 
 ## API Endpoints

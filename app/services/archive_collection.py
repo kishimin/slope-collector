@@ -6,6 +6,7 @@ import random
 import unicodedata
 from datetime import datetime
 from html import escape
+from pathlib import Path
 from typing import TYPE_CHECKING, Protocol
 from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
@@ -103,6 +104,15 @@ class ArchiveRepository(Protocol):
         """Save one recovered article without activating its member."""
 
 
+def load_archive_config(path: str) -> ArchiveConfig:
+    """Read an ignored local archive contract without exposing raw errors."""
+    try:
+        return ArchiveConfig.model_validate_json(Path(path).read_text(encoding="utf-8"))
+    except OSError, ValueError:
+        message = "archive configuration file is invalid"
+        raise ValueError(message) from None
+
+
 def _object(value: JsonValue) -> dict[str, JsonValue]:
     if not isinstance(value, dict):
         message = "archive response object is invalid"
@@ -181,6 +191,7 @@ def collect_archive(  # noqa: PLR0913 - explicit collection boundary.
     saved = skipped = visited = 0
     failures = []
     seen: set[str] = set()
+    seen_pages: set[tuple[str, ...]] = set()
     pages: int | None = None
     with BoundedHttpClient(
         base_url=str(config.base_url),
@@ -204,6 +215,7 @@ def collect_archive(  # noqa: PLR0913 - explicit collection boundary.
         page = 0
         while pages is None or page < pages:
             try:
+                _require_page_limit(page, settings.collector_max_pages)
                 payload = _object(
                     fetch(
                         config.list_path.format(entity_key=config.entity_key, page=page)
@@ -217,6 +229,7 @@ def collect_archive(  # noqa: PLR0913 - explicit collection boundary.
                     max_pages=settings.collector_max_pages,
                 )
                 keys = tuple(_key(item[config.fields.record_id]) for item in references)
+                _require_unique_page(keys, seen_pages)
                 known = repository.existing_record_keys(
                     source.name, source_entity_key, keys
                 )
@@ -271,6 +284,22 @@ def collect_archive(  # noqa: PLR0913 - explicit collection boundary.
     )
 
 
+def _require_page_limit(page: int, max_pages: int) -> None:
+    if page >= max_pages:
+        message = "archive page limit reached"
+        raise ParseContractError(message)
+
+
+def _require_unique_page(
+    keys: tuple[str, ...],
+    seen_pages: set[tuple[str, ...]],
+) -> None:
+    if keys and keys in seen_pages:
+        message = "archive repeated a record page"
+        raise ParseContractError(message)
+    seen_pages.add(keys)
+
+
 def _parse_page(
     payload: dict[str, JsonValue],
     fields: ArchiveFields,
@@ -279,9 +308,7 @@ def _parse_page(
     previous_pages: int | None,
     max_pages: int,
 ) -> tuple[list[dict[str, JsonValue]], int]:
-    if page >= max_pages:
-        message = "archive page limit reached"
-        raise ParseContractError(message)
+    _require_page_limit(page, max_pages)
     count = payload[fields.pages]
     if isinstance(count, bool) or not isinstance(count, int) or count < 0:
         message = "archive page count is invalid"

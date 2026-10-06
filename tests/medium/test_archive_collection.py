@@ -220,7 +220,9 @@ def test_archive_reports_invalid_contracts_without_persisting_wrong_records(
         sleep=lambda _: None,
     )
     assert result.failed_records == 1
-    expected_saved = 1 if problem in {"page-change", "page-limit", "repeated-page"} else 0
+    expected_saved = (
+        1 if problem in {"page-change", "page-limit", "repeated-page"} else 0
+    )
     assert result.saved_records == expected_saved
     engine.dispose()
 

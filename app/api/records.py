@@ -43,6 +43,12 @@ class FullEntityResponse(EntityResponse):
     updated_at: datetime_module.datetime
 
 
+class EntityListItem(EntityResponse):
+    """One local member with the exact number of stored articles."""
+
+    record_count: int
+
+
 class RecordListItem(BaseModel):
     """Record fields safe for list responses."""
 
@@ -96,7 +102,7 @@ class EntitiesResponse(BaseModel):
 
     model_config = ConfigDict(frozen=True)
 
-    entities: list[EntityResponse]
+    entities: list[EntityListItem]
 
 
 class FullEntitiesResponse(BaseModel):
@@ -152,12 +158,22 @@ def create_records_router(  # noqa: C901
     async def list_entities(
         source_id: Annotated[int | None, Query(ge=1)] = None,
     ) -> EntitiesResponse:
-        statement = select(Entity).order_by(Entity.id)
+        statement = (
+            select(Entity, func.count(Record.id))
+            .outerjoin(Record, Record.entity_id == Entity.id)
+            .group_by(Entity.id)
+            .order_by(Entity.id)
+        )
         if source_id is not None:
             statement = statement.where(Entity.source_id == source_id)
         with sessions() as session:
-            rows = session.scalars(statement).all()
-        return EntitiesResponse(entities=[_entity_response(row) for row in rows])
+            rows = session.execute(statement).all()
+        return EntitiesResponse(
+            entities=[
+                EntityListItem(**_entity_response(row).model_dump(), record_count=count)
+                for row, count in rows
+            ]
+        )
 
     @router.get("/entities/all", response_model=FullEntitiesResponse)
     async def list_all_entity_details() -> FullEntitiesResponse:

@@ -10,6 +10,54 @@ from app.services.collection import CollectionMode, CollectionResult
 
 
 @pytest.mark.small
+def test_archive_command_requires_targeted_manual_backfill() -> None:
+    """An archive cannot be selected for daily or untargeted collection."""
+    with pytest.raises(SystemExit) as error:
+        collector.main(["collect-daily", "--archive-config", ".env.archive.json"])
+    assert error.value.code == 2
+
+
+@pytest.mark.small
+def test_archive_command_delegates_to_archive_workflow(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """An explicit archive file selects recovery instead of official collection."""
+    captured: dict[str, object] = {}
+    monkeypatch.setattr(
+        collector, "load_settings", lambda: SimpleNamespace(log_level="INFO")
+    )
+    monkeypatch.setattr(collector, "create_session_factory", lambda _: object())
+    monkeypatch.setattr(collector, "SqlAlchemyCollectionRepository", lambda _: object())
+    monkeypatch.setattr(
+        collector, "load_archive_config", lambda _: "private-config", raising=False
+    )
+    monkeypatch.setattr(collector, "notify_failures", lambda *_: None)
+
+    def collect(**kwargs: object) -> CollectionResult:
+        captured.update(kwargs)
+        return CollectionResult(saved_records=1)
+
+    monkeypatch.setattr(collector, "collect_archive", collect, raising=False)
+    assert (
+        collector.main(
+            [
+                "collect-backfill",
+                "--source",
+                "source_a",
+                "--source-entity-key",
+                "7",
+                "--archive-config",
+                ".env.archive.json",
+            ]
+        )
+        == 0
+    )
+    assert captured["source_entity_key"] == "7"
+    assert captured["source_key"] == "source_a"
+    assert captured["config"] == "private-config"
+
+
+@pytest.mark.small
 def test_backfill_command_runs_both_configured_sources(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

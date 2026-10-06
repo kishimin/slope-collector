@@ -107,14 +107,12 @@ async def test_local_user_can_browse_sources_entities_and_record_details(
                 "source_id": 1,
                 "name": "Example author A",
                 "is_active": True,
-                "record_count": 1,
             },
             {
                 "id": 2,
                 "source_id": 2,
                 "name": "Example author B",
                 "is_active": False,
-                "record_count": 1,
             },
         ]
     }
@@ -185,7 +183,6 @@ async def test_local_user_can_filter_and_page_record_lists(application: object) 
                 "source_id": 2,
                 "name": "Example author B",
                 "is_active": False,
-                "record_count": 1,
             }
         ]
     }

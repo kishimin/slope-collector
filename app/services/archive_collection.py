@@ -69,6 +69,7 @@ class ArchiveConfig(BaseModel):
     entity_name: str = Field(min_length=1, max_length=255)
     fields: ArchiveFields
     allowed_cdn_hosts: tuple[str, ...] = ()
+    excluded_source_entity_keys: tuple[str, ...] = ()
 
     @field_validator("base_url")
     @classmethod
@@ -91,6 +92,11 @@ class ArchiveConfig(BaseModel):
 
 class ArchiveRepository(Protocol):
     """Persistence boundary that preserves inactive source identities."""
+
+    def prepare_archive_entity(
+        self, source_name: str, entity_external_key: str, entity_name: str
+    ) -> None:
+        """Preserve one existing member identity before detail checkpoint checks."""
 
     def existing_record_keys(
         self,
@@ -145,7 +151,7 @@ def _require_author(value: JsonValue, expected: str) -> str:
     return author
 
 
-def collect_archive(  # noqa: PLR0913 - explicit collection boundary.
+def collect_archive(  # noqa: C901, PLR0913 - explicit collection boundary.
     *,
     settings: Settings,
     source_key: SourceKey,
@@ -156,8 +162,19 @@ def collect_archive(  # noqa: PLR0913 - explicit collection boundary.
     sleep: Callable[[float], None],
 ) -> CollectionResult:
     """Supplement every archive page while preserving original checkpoints."""
+    if source_entity_key in config.excluded_source_entity_keys:
+        return CollectionResult()
     _key(source_entity_key)
     source = load_source_config(settings, source_key)
+    try:
+        repository.prepare_archive_entity(
+            source.name, source_entity_key, config.entity_name
+        )
+    except ValueError as error:
+        return CollectionResult(
+            failed_records=1,
+            failures=(_failure("archive-identity", source_key, error),),
+        )
     # Synthetic metadata lets the existing source parser enforce the same bounds.
     selectors = SourceSelectors(
         list_item=".entry",

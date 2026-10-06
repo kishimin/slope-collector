@@ -11,7 +11,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 from app.config import Settings, SourceConfig
-from app.models.collection import Base, Entity, Record
+from app.models.collection import Base, Entity, Record, Source
 from app.repositories.collection import SqlAlchemyCollectionRepository
 from app.services import archive_collection
 from app.services.archive_collection import ArchiveConfig, collect_archive
@@ -220,6 +220,124 @@ def test_archive_exclusion_preserves_records_without_any_source_requests(
         entity = session.scalar(select(Entity))
         assert entity is not None
         assert entity.is_active is False
+    engine.dispose()
+
+
+@pytest.mark.medium
+def test_archive_all_known_legacy_articles_keep_record_ids_and_skip_details(
+    archive_context: tuple[Settings, ArchiveConfig],
+) -> None:
+    """Resolving an old member key keeps every existing record and asset."""
+    settings, config = archive_context
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    sessions = sessionmaker(engine)
+    repository = SqlAlchemyCollectionRepository(sessions)
+    repository.persist_archive(collected_record())
+    with sessions.begin() as session:
+        entity = session.scalar(select(Entity))
+        record = session.scalar(select(Record))
+        assert entity is not None
+        assert record is not None
+        original_id = entity.id
+        record_id = record.id
+        entity.external_key = "legacy:1"
+        entity.name = "Exampleauthor"
+    requested: list[str] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        requested.append(request.url.path)
+        return httpx.Response(
+            200,
+            json={
+                "pages": 1,
+                "items": [
+                    {
+                        "id": 42,
+                        "url": "https://source.example/detail/42",
+                        "author": "Example author",
+                    }
+                ],
+            },
+        )
+
+    result = collect_archive(
+        settings=settings,
+        source_key="source_a",
+        source_entity_key="7",
+        config=config,
+        repository=repository,
+        transport=httpx.MockTransport(respond),
+        sleep=lambda _: None,
+    )
+    assert requested == ["/archive"]
+    assert result.skipped_records == 1
+    assert result.saved_records == 0
+    assert result.failed_records == 0
+    with sessions() as session:
+        entity = session.scalar(select(Entity))
+        assert entity is not None
+        assert (entity.id, entity.external_key, entity.is_active) == (
+            original_id,
+            "7",
+            False,
+        )
+        records = session.scalars(select(Record)).all()
+        assert [(r.id, r.title, r.body) for r in records] == [
+            (record_id, "Example title", "<p>Example body</p>"),
+        ]
+    engine.dispose()
+
+
+@pytest.mark.medium
+def test_archive_ambiguous_legacy_members_fail_without_requests_or_identity_changes(
+    archive_context: tuple[Settings, ArchiveConfig],
+) -> None:
+    """Two old members with the same name cannot be silently merged."""
+    settings, config = archive_context
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    sessions = sessionmaker(engine)
+    with sessions.begin() as session:
+        source = Source(name="source_a")
+        session.add(source)
+        session.flush()
+        session.add_all(
+            [
+                Entity(
+                    source_id=source.id,
+                    external_key=key,
+                    name="Example author",
+                    is_active=False,
+                )
+                for key in ("legacy:1", "legacy:2")
+            ]
+        )
+    requested: list[str] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        requested.append(request.url.path)
+        return httpx.Response(500)
+
+    result = collect_archive(
+        settings=settings,
+        source_key="source_a",
+        source_entity_key="7",
+        config=config,
+        repository=SqlAlchemyCollectionRepository(sessions),
+        transport=httpx.MockTransport(respond),
+        sleep=lambda _: None,
+    )
+    assert requested == []
+    assert result.failed_records == 1
+    assert result.failures[0].stage == "archive-identity"
+    with sessions() as session:
+        assert session.scalars(
+            select(Entity.external_key).order_by(Entity.external_key)
+        ).all() == [
+            "legacy:1",
+            "legacy:2",
+        ]
     engine.dispose()
 
 

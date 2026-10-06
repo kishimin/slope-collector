@@ -231,12 +231,19 @@ archive member key. The archive file supplies its HTTPS `base_url`, root-relativ
 List responses must provide a zero-based paginated record array and a total page
 count; detail responses must provide HTML bodies and timezone-aware ISO timestamps.
 An optional `allowed_cdn_hosts` list approves archive image hosts.
+An optional `excluded_source_entity_keys` list blocks selected original member
+keys before any archive requests or identity updates. Exclusions belong in the
+private file alongside the member mappings.
 
 Use an ignored `.env.*.json` file for real URLs, field mappings and member values.
 Archive recovery preserves original article identifiers and paths, skips existing
 details, checks both list and detail authors, and uses the same bounded, paced,
 serial transport and body sanitization as official collection. Existing member
 activity remains unchanged; newly discovered archive members are inactive.
+An unambiguous legacy member is resolved before checking article identifiers,
+preserving its database ID, records and inactive state. Ambiguous old identities
+fail without issuing archive requests. A member that becomes inactive after
+official collection therefore retains the same article checkpoints during recovery.
 Daily collection continues to exclude inactive members. Pagination or article
 failures produce a nonzero exit status; rerun the same command to supplement
 successfully saved checkpoints.
@@ -251,7 +258,7 @@ Development record routes are enabled only when `ENVIRONMENT=development`. Produ
 | ------ | ---- | ----------- |
 | `GET` | `/health` | Return service availability. |
 | `GET` | `/sources` | List configured source names. |
-| `GET` | `/entities` | List entities; optionally filter with `source_id`. |
+| `GET` | `/entities` | List entities with stored `record_count`; optionally filter with `source_id`. |
 | `GET` | `/entities/all` | List all entity fields, including source keys and timestamps. |
 | `GET` | `/entities/{entity_id}` | Return one entity or `404`. |
 | `GET` | `/entities/{entity_id}/records` | Return all titles and bodies for one entity, or `404`. |

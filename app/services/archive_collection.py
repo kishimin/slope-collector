@@ -94,7 +94,7 @@ class ArchiveRepository(Protocol):
     """Persistence boundary that preserves inactive source identities."""
 
     def prepare_archive_entity(
-        self, source_name: str, entity_external_key: str, entity_name: str
+        self, source_key: str, source_name: str, entity_external_key: str, entity_name: str
     ) -> None:
         """Preserve one existing member identity before detail checkpoint checks."""
 
@@ -168,7 +168,7 @@ def collect_archive(  # noqa: C901, PLR0913 - explicit collection boundary.
     source = load_source_config(settings, source_key)
     try:
         repository.prepare_archive_entity(
-            source.name, source_entity_key, config.entity_name
+            source_key, source.name, source_entity_key, config.entity_name
         )
     except ValueError as error:
         return CollectionResult(

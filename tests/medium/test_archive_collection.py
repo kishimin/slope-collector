@@ -80,8 +80,10 @@ def archive_context(monkeypatch: pytest.MonkeyPatch) -> tuple[Settings, ArchiveC
 
 
 @pytest.mark.medium
+@pytest.mark.parametrize("stored_key", ["7", "legacy:1"])
 def test_archive_backfill_preserves_inactive_identity_and_skips_known_details(
     archive_context: tuple[Settings, ArchiveConfig],
+    stored_key: str,
 ) -> None:
     """All archive pages supplement one inactive source-owned member."""
     settings, config = archive_context
@@ -95,6 +97,7 @@ def test_archive_backfill_preserves_inactive_identity_and_skips_known_details(
         assert entity is not None
         original_id = entity.id
         entity.is_active = False
+        entity.external_key = stored_key
 
     requested: list[str] = []
 
@@ -168,6 +171,55 @@ def test_archive_persistence_creates_an_inactive_member() -> None:
     assert repository.persist_archive(collected_record()) is True
     assert repository.is_entity_active("source_a", "7") is False
     assert repository.persist_archive(collected_record()) is False
+    engine.dispose()
+
+
+@pytest.mark.medium
+def test_archive_exclusion_preserves_records_without_any_source_requests(
+    archive_context: tuple[Settings, ArchiveConfig],
+) -> None:
+    """A privately excluded member keeps its existing history untouched."""
+    settings, original = archive_context
+    config = ArchiveConfig.model_validate(
+        {
+            **original.model_dump(),
+            "excluded_source_entity_keys": ["7"],
+        }
+    )
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    sessions = sessionmaker(engine)
+    repository = SqlAlchemyCollectionRepository(sessions)
+    repository.persist_archive(collected_record())
+    with sessions() as session:
+        before = session.scalar(select(Record))
+        assert before is not None
+        checkpoint = (before.id, before.title, before.body, before.source_url)
+    requests: list[str] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        requests.append(str(request.url))
+        return httpx.Response(500)
+
+    result = collect_archive(
+        settings=settings,
+        source_key="source_a",
+        source_entity_key="7",
+        config=config,
+        repository=repository,
+        transport=httpx.MockTransport(respond),
+        sleep=lambda _: None,
+    )
+    assert requests == []
+    assert result.visited_pages == 0
+    assert result.saved_records == 0
+    assert result.failed_records == 0
+    with sessions() as session:
+        records = session.scalars(select(Record)).all()
+        assert [(r.id, r.title, r.body, r.source_url) for r in records] == [checkpoint]
+        entity = session.scalar(select(Entity))
+        assert entity is not None
+        assert entity.is_active is False
     engine.dispose()
 
 

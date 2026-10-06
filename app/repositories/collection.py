@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import unicodedata
 from typing import TYPE_CHECKING
 
 from sqlalchemy import select
@@ -56,7 +57,57 @@ class SqlAlchemyCollectionRepository:
             )
             return frozenset(rows)
 
-    def persist(self, record: CollectedRecord) -> bool:
+    def persist_archive(self, record: CollectedRecord) -> bool:
+        """Supplement an archive without activating newly discovered members."""
+        return self.persist(record, new_entity_active=False)
+
+    def prepare_archive_entity(
+        self,
+        source_key: str,
+        source_name: str,
+        entity_external_key: str,
+        entity_name: str,
+    ) -> None:
+        """Resolve one legacy member before checking archived article keys."""
+        with self._sessions.begin() as session:
+            source = session.scalar(select(Source).where(Source.name == source_name))
+            if source is None and source_name != source_key:
+                source = session.scalar(select(Source).where(Source.name == source_key))
+                if source is not None:
+                    source.name = source_name
+                    session.flush()
+            if source is None:
+                return
+            current = session.scalar(
+                select(Entity).where(
+                    Entity.source_id == source.id,
+                    Entity.external_key == entity_external_key,
+                )
+            )
+            if current is not None:
+                return
+            legacy_rows = session.scalars(
+                select(Entity).where(
+                    Entity.source_id == source.id,
+                    Entity.external_key.startswith("legacy:"),
+                )
+            ).all()
+            expected = "".join(unicodedata.normalize("NFC", entity_name).split())
+            matches = [
+                row
+                for row in legacy_rows
+                if "".join(unicodedata.normalize("NFC", row.name).split()) == expected
+            ]
+            if len(matches) > 1:
+                message = "archive member identity is ambiguous"
+                raise ValueError(message)
+            if matches:
+                # Skipping known details cannot otherwise claim their old identity.
+                matches[0].external_key = entity_external_key
+
+    def persist(
+        self, record: CollectedRecord, *, new_entity_active: bool = True
+    ) -> bool:
         """Return false for an existing record without duplicating its assets."""
         source_name = record.source_name or record.source_key
         with self._sessions.begin() as session:
@@ -86,6 +137,7 @@ class SqlAlchemyCollectionRepository:
                     source_id=source.id,
                     external_key=record.entity_external_key,
                     name=record.private_name,
+                    is_active=new_entity_active,
                 )
                 session.add(entity)
                 session.flush()

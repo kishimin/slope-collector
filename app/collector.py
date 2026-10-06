@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 from app.config import load_settings
 from app.db.session import create_session_factory
 from app.repositories.collection import SqlAlchemyCollectionRepository
+from app.services.archive_collection import collect_archive, load_archive_config
 from app.services.collection import CollectionMode, collect_all
 from app.services.notifications import notify_failures
 
@@ -38,11 +39,19 @@ def main(arguments: Sequence[str] | None = None) -> int:
         choices=SOURCE_KEYS,
         help="Run collection for one configured source.",
     )
+    parser.add_argument(
+        "--archive-config",
+        help="Private JSON archive contract for a targeted manual backfill.",
+    )
     parsed = parser.parse_args(arguments)
     if parsed.source_entity_key is not None and parsed.source is None:
         parser.error("--source-entity-key requires --source")
     if parsed.source_entity_key is not None and parsed.command != "collect-backfill":
         parser.error("--source-entity-key requires collect-backfill")
+    if parsed.archive_config is not None and (
+        parsed.command != "collect-backfill" or parsed.source_entity_key is None
+    ):
+        parser.error("--archive-config requires a targeted collect-backfill")
     mode = (
         CollectionMode.BACKFILL
         if parsed.command == "collect-backfill"
@@ -54,14 +63,28 @@ def main(arguments: Sequence[str] | None = None) -> int:
         logging.getLogger(logger_name).setLevel(logging.WARNING)
     repository = SqlAlchemyCollectionRepository(create_session_factory(settings))
     source_keys = (parsed.source,) if parsed.source is not None else SOURCE_KEYS
-    result = collect_all(
-        settings=settings,
-        source_keys=source_keys,
-        source_entity_key=parsed.source_entity_key,
-        mode=mode,
-        repository=repository,
-        sleep=time.sleep,
-    )
+    if parsed.archive_config is not None:
+        try:
+            archive_config = load_archive_config(parsed.archive_config)
+        except ValueError as error:
+            parser.error(str(error))
+        result = collect_archive(
+            settings=settings,
+            source_key=parsed.source,
+            source_entity_key=parsed.source_entity_key,
+            config=archive_config,
+            repository=repository,
+            sleep=time.sleep,
+        )
+    else:
+        result = collect_all(
+            settings=settings,
+            source_keys=source_keys,
+            source_entity_key=parsed.source_entity_key,
+            mode=mode,
+            repository=repository,
+            sleep=time.sleep,
+        )
     try:
         notify_failures(settings, result)
     except OSError, smtplib.SMTPException:

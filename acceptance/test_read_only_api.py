@@ -102,8 +102,18 @@ async def test_local_user_can_browse_sources_entities_and_record_details(
     assert entities.status_code == status.HTTP_200_OK
     assert entities.json() == {
         "entities": [
-            {"id": 1, "source_id": 1, "name": "Example author A", "is_active": True},
-            {"id": 2, "source_id": 2, "name": "Example author B", "is_active": False},
+            {
+                "id": 1,
+                "source_id": 1,
+                "name": "Example author A",
+                "is_active": True,
+            },
+            {
+                "id": 2,
+                "source_id": 2,
+                "name": "Example author B",
+                "is_active": False,
+            },
         ]
     }
     assert entity.status_code == status.HTTP_200_OK
@@ -168,7 +178,12 @@ async def test_local_user_can_filter_and_page_record_lists(application: object) 
 
     assert entities.json() == {
         "entities": [
-            {"id": 2, "source_id": 2, "name": "Example author B", "is_active": False}
+            {
+                "id": 2,
+                "source_id": 2,
+                "name": "Example author B",
+                "is_active": False,
+            }
         ]
     }
     assert records.json()["records"] == [

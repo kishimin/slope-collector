@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Self
 from urllib.parse import urljoin, urlsplit
 
 import httpx
+from pydantic import JsonValue, TypeAdapter, ValidationError
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -89,6 +90,18 @@ class BoundedHttpClient:
 
     def get_html(self, source_path: str) -> str:
         """Return one bounded HTML response from the approved source."""
+        return self._get_text(source_path, media_type="text/html")
+
+    def get_json(self, source_path: str) -> JsonValue:
+        """Decode bounded JSON without relaxing the approved host boundary."""
+        text = self._get_text(source_path, media_type="application/json")
+        try:
+            return TypeAdapter(JsonValue).validate_json(text)
+        except ValidationError:
+            message = "source response is not valid JSON"
+            raise FetchPermanentError(message) from None
+
+    def _get_text(self, source_path: str, *, media_type: str) -> str:
         deadline = self._clock() + self._response_timeout_seconds
         url = self._approved_url(source_path)
         for _redirect_count in range(MAX_REDIRECTS + 1):
@@ -105,8 +118,10 @@ class BoundedHttpClient:
                         continue
                     self._raise_for_status(response)
                     content_type = response.headers.get("content-type", "")
-                    if content_type.split(";", maxsplit=1)[0].strip() != "text/html":
-                        message = "response media type is not HTML"
+                    if content_type.split(";", maxsplit=1)[0].strip() != media_type:
+                        message = "response media type is not " + (
+                            "HTML" if media_type == "text/html" else "JSON"
+                        )
                         raise FetchPermanentError(message)
                     content = self._read_bounded(response.iter_bytes(), deadline)
                     return content.decode(

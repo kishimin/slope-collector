@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import httpx
 import pytest
-from app.services.archive_collection import ArchiveConfig, collect_archive
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
@@ -12,6 +11,7 @@ from app.config import Settings, SourceConfig
 from app.models.collection import Base, Entity, Record
 from app.repositories.collection import SqlAlchemyCollectionRepository
 from app.services import archive_collection
+from app.services.archive_collection import ArchiveConfig, collect_archive
 from tests.medium.test_collection_repository import collected_record
 
 
@@ -140,7 +140,8 @@ def test_archive_backfill_preserves_inactive_identity_and_skips_known_details(
         assert record is not None
         assert record.source_url == "/detail/43"
         assert "Recovered" in record.body
-        assert "script" not in record.body and "onclick" not in record.body
+        assert "script" not in record.body
+        assert "onclick" not in record.body
     engine.dispose()
 
 

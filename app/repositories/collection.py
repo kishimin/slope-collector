@@ -56,7 +56,13 @@ class SqlAlchemyCollectionRepository:
             )
             return frozenset(rows)
 
-    def persist(self, record: CollectedRecord) -> bool:
+    def persist_archive(self, record: CollectedRecord) -> bool:
+        """Supplement an archive without activating newly discovered members."""
+        return self.persist(record, new_entity_active=False)
+
+    def persist(
+        self, record: CollectedRecord, *, new_entity_active: bool = True
+    ) -> bool:
         """Return false for an existing record without duplicating its assets."""
         source_name = record.source_name or record.source_key
         with self._sessions.begin() as session:
@@ -86,6 +92,7 @@ class SqlAlchemyCollectionRepository:
                     source_id=source.id,
                     external_key=record.entity_external_key,
                     name=record.private_name,
+                    is_active=new_entity_active,
                 )
                 session.add(entity)
                 session.flush()

@@ -94,7 +94,11 @@ class ArchiveRepository(Protocol):
     """Persistence boundary that preserves inactive source identities."""
 
     def prepare_archive_entity(
-        self, source_key: str, source_name: str, entity_external_key: str, entity_name: str
+        self,
+        source_key: str,
+        source_name: str,
+        entity_external_key: str,
+        entity_name: str,
     ) -> None:
         """Preserve one existing member identity before detail checkpoint checks."""
 
@@ -334,7 +338,11 @@ def _parse_page(
         message = "archive page count changed during collection"
         raise ParseContractError(message)
     items = payload[fields.records]
-    if not isinstance(items, list) or (count > 0 and not items):
+    if (
+        not isinstance(items, list)
+        or (count > 0 and not items)
+        or (count == 0 and items)
+    ):
         message = "archive record list is invalid"
         raise ParseContractError(message)
     return [_object(item) for item in items], count

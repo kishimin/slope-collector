@@ -62,7 +62,11 @@ class SqlAlchemyCollectionRepository:
         return self.persist(record, new_entity_active=False)
 
     def prepare_archive_entity(
-        self, source_key: str, source_name: str, entity_external_key: str, entity_name: str
+        self,
+        source_key: str,
+        source_name: str,
+        entity_external_key: str,
+        entity_name: str,
     ) -> None:
         """Resolve one legacy member before checking archived article keys."""
         with self._sessions.begin() as session:

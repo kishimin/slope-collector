@@ -22,11 +22,19 @@ if TYPE_CHECKING:
 
 
 @pytest.fixture
-def archive_context(monkeypatch: pytest.MonkeyPatch) -> tuple[Settings, ArchiveConfig]:
+def source_name() -> str:
+    """Use the stable source name unless a test selects a renamed source."""
+    return "source_a"
+
+
+@pytest.fixture
+def archive_context(
+    monkeypatch: pytest.MonkeyPatch, source_name: str
+) -> tuple[Settings, ArchiveConfig]:
     """Provide private source and archive contracts using anonymous targets."""
     source = SourceConfig.model_validate(
         {
-            "name": "source_a",
+            "name": source_name,
             "base_url": "https://source.example",
             "list_path": "/list",
             "detail_path": "/detail/{record_id}",
@@ -86,7 +94,6 @@ def test_archive_backfill_preserves_inactive_identity_and_skips_known_details(
     archive_context: tuple[Settings, ArchiveConfig],
     stored_key: str,
     source_name: str,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """All archive pages supplement one inactive source-owned member."""
     settings, config = archive_context
@@ -102,12 +109,6 @@ def test_archive_backfill_preserves_inactive_identity_and_skips_known_details(
         entity.is_active = False
         entity.external_key = stored_key
 
-    source = archive_collection.load_source_config(settings, "source_a")
-    monkeypatch.setattr(
-        archive_collection,
-        "load_source_config",
-        lambda *_: source.model_copy(update={"name": source_name}),
-    )
     requested: list[str] = []
 
     def respond(request: httpx.Request) -> httpx.Response:
@@ -161,6 +162,7 @@ def test_archive_backfill_preserves_inactive_identity_and_skips_known_details(
             "7",
             False,
         )
+        assert session.scalar(select(Source.name)) == source_name
         record = session.scalar(select(Record).where(Record.external_key == "43"))
         assert record is not None
         assert record.source_url == "/detail/43"
@@ -485,10 +487,8 @@ def invalid_list_response(problem: str, request: httpx.Request) -> httpx.Respons
         item["url"] = "https://source.example/detail/43"
     elif problem == "key":
         item["id"] = True
-    elif problem == "page-count":
-        payload["pages"] = True
-    elif problem == "zero-pages-with-records":
-        payload["pages"] = 0
+    elif problem in {"page-count", "zero-pages-with-records"}:
+        payload["pages"] = True if problem == "page-count" else 0
     elif problem == "empty-list":
         payload["items"] = []
     elif problem == "list-object":

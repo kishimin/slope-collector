@@ -528,7 +528,7 @@ def invalid_detail_response(problem: str) -> httpx.Response:
 @pytest.mark.medium
 @pytest.mark.parametrize("active", [True, False])
 def test_archive_previous_origin_preserves_identity_and_distinct_article_keys(
-    archive_context: tuple[Settings, ArchiveConfig], active: bool
+    archive_context: tuple[Settings, ArchiveConfig], *, active: bool
 ) -> None:
     """Previous-era articles coexist under the current member without duplicates."""
     settings, original = archive_context
@@ -549,6 +549,7 @@ def test_archive_previous_origin_preserves_identity_and_distinct_article_keys(
         assert entity is not None
         identity = entity.id
         entity.is_active = active
+        entity.name = "Exampleauthor"
     requests: list[str] = []
 
     def respond(request: httpx.Request) -> httpx.Response:
@@ -588,7 +589,7 @@ def test_archive_previous_origin_preserves_identity_and_distinct_article_keys(
     with sessions() as session:
         entities = session.scalars(select(Entity)).all()
         assert [(e.id, e.external_key, e.name, e.is_active) for e in entities] == [
-            (identity, "7", "Example author", active)
+            (identity, "7", "Exampleauthor", active)
         ]
         records = session.scalars(select(Record).order_by(Record.external_key)).all()
         assert [(r.entity_id, r.external_key) for r in records] == [
@@ -671,13 +672,14 @@ def test_archive_html_details_preserve_current_identity_and_validate_origin(
             "record_key_namespace": "previous",
             "original_selectors": {
                 **dict.fromkeys(
-                    ("list_item", "detail_link", "entity_link", "asset", "next_page"),
+                    ("list_item", "detail_link", "asset", "next_page"),
                     ".unused",
                 ),
                 "title": ".title",
                 "body": ".body",
                 "published_at": ".date",
                 "author": ".author",
+                "entity_link": ".entity",
             },
         }
     )
@@ -708,9 +710,11 @@ def test_archive_html_details_preserve_current_identity_and_validate_origin(
         author = "Other author" if problem == "author" else "Example author"
         return httpx.Response(
             200,
+            headers={"content-type": "text/html"},
             text=f'<h1 class="title">Old article</h1>'
             '<time class="date">2020-01-01 12:00</time>'
             f'<span class="author">{author}</span>'
+            '<a class="entity" href="/?entity=99">Example author</a>'
             '<div class="body"><p>Recovered</p><script>bad()</script></div>',
         )
 

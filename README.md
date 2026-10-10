@@ -231,6 +231,22 @@ archive member key. The archive file supplies its HTTPS `base_url`, root-relativ
 List responses must provide a zero-based paginated record array and a total page
 count; detail responses must provide HTML bodies and timezone-aware ISO timestamps.
 An optional `allowed_cdn_hosts` list approves archive image hosts.
+For a previous era belonging to the same person, use the current source and its
+current source entity key. Optional `original_base_url` approves the previous
+HTTPS origin; `original_detail_path` and `original_record_id_pattern` describe
+its article URLs. An optional `record_key_namespace` (1-32 lowercase ASCII
+letters, digits, underscores or hyphens, starting with a letter) stores article
+keys as `namespace:original_id`, so independently numbered eras do not collide.
+Reuse the same namespace when restarting; known articles skip detail requests.
+
+Set `detail_format` to `html` to read live original article URLs from the JSON
+listing when archived JSON details are unavailable. Supply `original_selectors`
+and `original_published_at_format` when the original HTML contract differs from
+the current source. These follow the existing private source configuration
+schema; defaults use the current source contract. Original HTML must identify
+the requested author and the listed article ID. Requests and redirects stay on
+the approved original HTTPS origin with the existing pacing, retry and response
+bounds. JSON remains the default detail format.
 An optional `excluded_source_entity_keys` list blocks selected original member
 keys before any archive requests or identity updates. Exclusions belong in the
 private file alongside the member mappings.
@@ -240,6 +256,8 @@ Archive recovery preserves original article identifiers and paths, skips existin
 details, checks both list and detail authors, and uses the same bounded, paced,
 serial transport and body sanitization as official collection. Existing member
 activity remains unchanged; newly discovered archive members are inactive.
+Existing display names are retained, and an existing member key that belongs to
+a different author is rejected before any requests.
 An unambiguous legacy member is resolved before checking article identifiers,
 preserving its database ID, records and inactive state. Ambiguous old identities
 fail without issuing archive requests. A member that becomes inactive after

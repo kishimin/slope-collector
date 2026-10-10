@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import random
 import unicodedata
+from dataclasses import replace
 from datetime import datetime
 from html import escape
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Literal, Protocol
 from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
 
@@ -20,7 +21,7 @@ from pydantic import (
     field_validator,
 )
 
-from app.config import SourceSelectors, load_source_config
+from app.config import SourceConfig, SourceSelectors, load_source_config
 from app.scraping.adapter import ParseContractError, SourceAdapter
 from app.scraping.http_client import (
     BoundedHttpClient,
@@ -68,23 +69,40 @@ class ArchiveConfig(BaseModel):
     entity_key: str = Field(min_length=1)
     entity_name: str = Field(min_length=1, max_length=255)
     fields: ArchiveFields
+    detail_format: Literal["json", "html"] = "json"
+    original_base_url: AnyHttpUrl | None = None
+    original_selectors: SourceSelectors | None = None
+    original_detail_path: str | None = None
+    original_record_id_pattern: str | None = None
+    original_published_at_format: str | None = None
+    record_key_namespace: str | None = Field(
+        default=None, min_length=1, max_length=32, pattern=r"^[a-z][a-z0-9_-]*$"
+    )
     allowed_cdn_hosts: tuple[str, ...] = ()
     excluded_source_entity_keys: tuple[str, ...] = ()
 
-    @field_validator("base_url")
+    @field_validator("original_record_id_pattern")
     @classmethod
-    def require_https(cls, value: AnyHttpUrl) -> AnyHttpUrl:
+    def require_original_record_id_pattern(cls, value: str | None) -> str | None:
+        """Validate private original identifiers before creating any clients."""
+        return (
+            SourceConfig.require_named_record_id(value) if value is not None else None
+        )
+
+    @field_validator("base_url", "original_base_url")
+    @classmethod
+    def require_https(cls, value: AnyHttpUrl | None) -> AnyHttpUrl | None:
         """Keep archive transport inside an explicit HTTPS boundary."""
-        if value.scheme != "https":
+        if value is not None and value.scheme != "https":
             message = "archive URL must use HTTPS"
             raise ValueError(message)
         return value
 
-    @field_validator("list_path", "detail_path")
+    @field_validator("list_path", "detail_path", "original_detail_path")
     @classmethod
-    def require_relative_path(cls, value: str) -> str:
+    def require_relative_path(cls, value: str | None) -> str | None:
         """Keep privately configured requests on the approved API host."""
-        if not value.startswith("/") or value.startswith("//"):
+        if value is not None and (not value.startswith("/") or value.startswith("//")):
             message = "archive paths must be root-relative"
             raise ValueError(message)
         return value
@@ -155,7 +173,7 @@ def _require_author(value: JsonValue, expected: str) -> str:
     return author
 
 
-def collect_archive(  # noqa: C901, PLR0913 - explicit collection boundary.
+def collect_archive(  # noqa: C901, PLR0913, PLR0915 - explicit collection boundary.
     *,
     settings: Settings,
     source_key: SourceKey,
@@ -191,11 +209,25 @@ def collect_archive(  # noqa: C901, PLR0913 - explicit collection boundary.
         asset="img",
         next_page=".next",
     )
+    original_source = SourceConfig.model_validate(
+        {
+            **source.model_dump(),
+            "base_url": config.original_base_url or source.base_url,
+            "selectors": config.original_selectors or source.selectors,
+            "detail_path": config.original_detail_path or source.detail_path,
+            "record_id_pattern": config.original_record_id_pattern
+            or source.record_id_pattern,
+            "published_at_format": config.original_published_at_format
+            or source.published_at_format,
+            "allowed_cdn_hosts": (*source.allowed_cdn_hosts, *config.allowed_cdn_hosts),
+        }
+    )
     adapter = SourceAdapter(
         source_key,
-        source.model_copy(
+        original_source.model_copy(
             update={
                 "selectors": selectors,
+                "base_url": config.original_base_url or source.base_url,
                 "published_at_format": "%Y-%m-%d %H:%M:%S",
                 "allowed_cdn_hosts": (
                     *source.allowed_cdn_hosts,
@@ -214,12 +246,20 @@ def collect_archive(  # noqa: C901, PLR0913 - explicit collection boundary.
     seen: set[str] = set()
     seen_pages: set[tuple[str, ...]] = set()
     pages: int | None = None
-    with BoundedHttpClient(
-        base_url=str(config.base_url),
-        user_agent=settings.collector_user_agent,
-        limits=limits,
-        transport=transport,
-    ) as client:
+    with (
+        BoundedHttpClient(
+            base_url=str(config.base_url),
+            user_agent=settings.collector_user_agent,
+            limits=limits,
+            transport=transport,
+        ) as client,
+        BoundedHttpClient(
+            base_url=str(original_source.base_url),
+            user_agent=settings.collector_user_agent,
+            limits=limits,
+            transport=transport,
+        ) as original_client,
+    ):
 
         def fetch(path: str) -> JsonValue:
             def request() -> JsonValue:
@@ -252,7 +292,9 @@ def collect_archive(  # noqa: C901, PLR0913 - explicit collection boundary.
                 keys = tuple(_key(item[config.fields.record_id]) for item in references)
                 _require_unique_page(keys, seen_pages)
                 known = repository.existing_record_keys(
-                    source.name, source_entity_key, keys
+                    source.name,
+                    source_entity_key,
+                    tuple(_record_key(config, key) for key in keys),
                 )
                 visited += 1
             except (
@@ -267,22 +309,49 @@ def collect_archive(  # noqa: C901, PLR0913 - explicit collection boundary.
             for item, key in zip(references, keys, strict=True):
                 try:
                     _require_author(item[config.fields.author], config.entity_name)
-                    if key in seen or key in known:
+                    if key in seen or _record_key(config, key) in known:
                         skipped += 1
                         continue
                     seen.add(key)
                     original_url = _text(item[config.fields.original_url])
-                    detail = _object(fetch(config.detail_path.format(record_id=key)))
-                    _require_author(detail[config.fields.author], config.entity_name)
-                    record = _parse_record(
-                        detail,
-                        config=config,
-                        adapter=adapter,
-                        entity_query=source.entity_id_query_param,
-                        source_entity_key=source_entity_key,
-                        original_url=original_url,
-                        record_id=key,
-                    )
+                    if config.detail_format == "html":
+
+                        def request_html(path: str = original_url) -> str:
+                            wait_before_request(
+                                settings,
+                                path,
+                                sleep=sleep,
+                                random_value=random.random,
+                            )
+                            return original_client.get_html(path)
+
+                        html = _retry(request_html, settings=settings, sleep=sleep)
+                        record = _parse_original_html(
+                            html,
+                            source_key=source_key,
+                            source=original_source,
+                            config=config,
+                            original_url=original_url,
+                            record_id=key,
+                            source_entity_key=source_entity_key,
+                        )
+                    else:
+                        detail = _object(
+                            fetch(config.detail_path.format(record_id=key))
+                        )
+                        _require_author(
+                            detail[config.fields.author], config.entity_name
+                        )
+                        record = _parse_record(
+                            detail,
+                            config=config,
+                            adapter=adapter,
+                            entity_query=source.entity_id_query_param,
+                            source_entity_key=source_entity_key,
+                            original_url=original_url,
+                            record_id=key,
+                        )
+                    record = replace(record, external_key=_record_key(config, key))
                     if repository.persist_archive(record):
                         saved += 1
                     else:
@@ -303,6 +372,34 @@ def collect_archive(  # noqa: C901, PLR0913 - explicit collection boundary.
         visited_pages=visited,
         failures=tuple(failures),
     )
+
+
+def _record_key(config: ArchiveConfig, key: str) -> str:
+    """Keep independently numbered eras separate within one member identity."""
+    return (
+        f"{config.record_key_namespace}:{key}" if config.record_key_namespace else key
+    )
+
+
+def _parse_original_html(  # noqa: PLR0913 - explicit identity and parsing boundaries.
+    html: str,
+    *,
+    source_key: SourceKey,
+    source: SourceConfig,
+    config: ArchiveConfig,
+    original_url: str,
+    record_id: str,
+    source_entity_key: str,
+) -> CollectedRecord:
+    """Validate the original article before assigning its current member key."""
+    record = SourceAdapter(source_key, source).parse_detail(
+        html, source_path=original_url
+    )
+    _require_author(record.private_name, config.entity_name)
+    if record.external_key != record_id:
+        message = "archive original URL does not match record identifier"
+        raise ParseContractError(message)
+    return replace(record, entity_external_key=source_entity_key)
 
 
 def _require_page_limit(page: int, max_pages: int) -> None:

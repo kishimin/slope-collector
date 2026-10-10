@@ -646,6 +646,8 @@ def test_archive_rejects_existing_key_for_different_member(
         {"record_key_namespace": "nonascii-é"},
         {"record_key_namespace": ""},
         {"record_key_namespace": "x" * 33},
+        {"original_record_id_pattern": "["},
+        {"original_record_id_pattern": r"/detail/(\d+)"},
     ],
 )
 def test_archive_rejects_unsafe_origin_or_namespace(
@@ -687,6 +689,10 @@ def test_archive_html_details_preserve_current_identity_and_validate_origin(
     Base.metadata.create_all(engine)
     sessions = sessionmaker(engine)
     repository = SqlAlchemyCollectionRepository(sessions)
+    repository.persist(collected_record())
+    with sessions() as session:
+        existing_identity = session.scalar(select(Entity.id))
+        assert existing_identity is not None
     requests: list[tuple[str, str]] = []
 
     def respond(request: httpx.Request) -> httpx.Response:
@@ -732,12 +738,38 @@ def test_archive_html_details_preserve_current_identity_and_validate_origin(
     assert all(host in {"archive.example", "previous.example"} for host, _ in requests)
     assert not any(path.startswith("/article/") for _, path in requests)
     if not problem:
+        repeat = collect_archive(
+            settings=settings,
+            source_key="source_a",
+            source_entity_key="7",
+            config=config,
+            repository=repository,
+            transport=httpx.MockTransport(respond),
+            sleep=lambda _: None,
+        )
+        assert (
+            repeat.saved_records,
+            repeat.skipped_records,
+            repeat.failed_records,
+        ) == (0, 1, 0)
+        assert requests == [
+            ("archive.example", "/archive"),
+            ("previous.example", "/detail/42"),
+            ("archive.example", "/archive"),
+        ]
         with sessions() as session:
-            record = session.scalar(select(Record))
+            record = session.scalar(
+                select(Record).where(Record.external_key == "previous:42")
+            )
             assert record is not None
             assert record.external_key == "previous:42"
             assert record.entity.external_key == "7"
-            assert record.entity.is_active is False
+            assert record.entity_id == existing_identity
+            assert record.entity.is_active is True
+            assert len(session.scalars(select(Entity)).all()) == 1
+            assert session.scalars(
+                select(Record.external_key).order_by(Record.external_key)
+            ).all() == ["42", "previous:42"]
             assert "Recovered" in record.body
             assert "script" not in record.body
     engine.dispose()

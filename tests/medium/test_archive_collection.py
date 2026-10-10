@@ -523,3 +523,253 @@ def invalid_detail_response(problem: str) -> httpx.Response:
     elif problem == "missing-field":
         del detail["body"]
     return httpx.Response(200, json=detail)
+
+
+@pytest.mark.medium
+@pytest.mark.parametrize("active", [True, False])
+def test_archive_previous_origin_preserves_identity_and_distinct_article_keys(
+    archive_context: tuple[Settings, ArchiveConfig], *, active: bool
+) -> None:
+    """Previous-era articles coexist under the current member without duplicates."""
+    settings, original = archive_context
+    config = ArchiveConfig.model_validate(
+        {
+            **original.model_dump(),
+            "original_base_url": "https://previous.example",
+            "record_key_namespace": "previous",
+        }
+    )
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    sessions = sessionmaker(engine)
+    repository = SqlAlchemyCollectionRepository(sessions)
+    repository.persist(collected_record())
+    with sessions.begin() as session:
+        entity = session.scalar(select(Entity))
+        assert entity is not None
+        identity = entity.id
+        entity.is_active = active
+        entity.name = "Exampleauthor"
+    requests: list[str] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        requests.append(request.url.path)
+        if request.url.path == "/archive":
+            return httpx.Response(
+                200,
+                json={
+                    "items": [
+                        {
+                            "id": 42,
+                            "url": "https://previous.example/detail/42",
+                            "author": "Example author",
+                        }
+                    ],
+                    "pages": 1,
+                },
+            )
+        return invalid_detail_response("")
+
+    for expected_saved, expected_skipped in ((1, 0), (0, 1)):
+        result = collect_archive(
+            settings=settings,
+            source_key="source_a",
+            source_entity_key="7",
+            config=config,
+            repository=repository,
+            transport=httpx.MockTransport(respond),
+            sleep=lambda _: None,
+        )
+        assert (
+            result.saved_records,
+            result.skipped_records,
+            result.failed_records,
+        ) == (expected_saved, expected_skipped, 0)
+    assert requests == ["/archive", "/article/42", "/archive"]
+    with sessions() as session:
+        entities = session.scalars(select(Entity)).all()
+        assert [(e.id, e.external_key, e.name, e.is_active) for e in entities] == [
+            (identity, "7", "Exampleauthor", active)
+        ]
+        records = session.scalars(select(Record).order_by(Record.external_key)).all()
+        assert [(r.entity_id, r.external_key) for r in records] == [
+            (identity, "42"),
+            (identity, "previous:42"),
+        ]
+        assert records[1].source_url == "/detail/42"
+    engine.dispose()
+
+
+@pytest.mark.medium
+def test_archive_rejects_existing_key_for_different_member(
+    archive_context: tuple[Settings, ArchiveConfig],
+) -> None:
+    """A current member key cannot silently absorb another person's archive."""
+    settings, original = archive_context
+    config = ArchiveConfig.model_validate(
+        {**original.model_dump(), "entity_name": "Different author"}
+    )
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    sessions = sessionmaker(engine)
+    repository = SqlAlchemyCollectionRepository(sessions)
+    repository.persist(collected_record())
+    requests: list[str] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        requests.append(request.url.path)
+        return httpx.Response(200, json={"items": [], "pages": 0})
+
+    result = collect_archive(
+        settings=settings,
+        source_key="source_a",
+        source_entity_key="7",
+        config=config,
+        repository=repository,
+        transport=httpx.MockTransport(respond),
+        sleep=lambda _: None,
+    )
+    assert result.failed_records == 1
+    assert result.failures[0].stage == "archive-identity"
+    assert requests == []
+    with sessions() as session:
+        assert session.scalar(select(Entity.name)) == "Example author"
+    engine.dispose()
+
+
+@pytest.mark.medium
+@pytest.mark.parametrize(
+    "update",
+    [
+        {"original_base_url": "http://previous.example"},
+        {"record_key_namespace": "bad:namespace"},
+        {"record_key_namespace": "nonascii-é"},
+        {"record_key_namespace": ""},
+        {"record_key_namespace": "x" * 33},
+        {"original_record_id_pattern": "["},
+        {"original_record_id_pattern": r"/detail/(\d+)"},
+    ],
+)
+def test_archive_rejects_unsafe_origin_or_namespace(
+    archive_context: tuple[Settings, ArchiveConfig], update: dict[str, str]
+) -> None:
+    """An alternate origin and storage namespace remain explicitly bounded."""
+    _, config = archive_context
+    with pytest.raises(ValidationError):
+        ArchiveConfig.model_validate({**config.model_dump(), **update})
+
+
+@pytest.mark.medium
+@pytest.mark.parametrize("problem", ["", "host", "author", "identifier"])
+def test_archive_html_details_preserve_current_identity_and_validate_origin(
+    archive_context: tuple[Settings, ArchiveConfig], problem: str
+) -> None:
+    """Live original HTML can recover unavailable JSON without trusting other hosts."""
+    settings, original = archive_context
+    config = ArchiveConfig.model_validate(
+        {
+            **original.model_dump(),
+            "detail_format": "html",
+            "original_base_url": "https://previous.example",
+            "record_key_namespace": "previous",
+            "original_selectors": {
+                **dict.fromkeys(
+                    ("list_item", "detail_link", "asset", "next_page"),
+                    ".unused",
+                ),
+                "title": ".title",
+                "body": ".body",
+                "published_at": ".date",
+                "author": ".author",
+                "entity_link": ".entity",
+            },
+        }
+    )
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    sessions = sessionmaker(engine)
+    repository = SqlAlchemyCollectionRepository(sessions)
+    repository.persist(collected_record())
+    with sessions() as session:
+        existing_identity = session.scalar(select(Entity.id))
+        assert existing_identity is not None
+    requests: list[tuple[str, str]] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        requests.append((request.url.host, request.url.path))
+        if request.url.path == "/archive":
+            host = "unapproved.example" if problem == "host" else "previous.example"
+            key = "43" if problem == "identifier" else "42"
+            return httpx.Response(
+                200,
+                json={
+                    "items": [
+                        {
+                            "id": 42,
+                            "url": f"https://{host}/detail/{key}",
+                            "author": "Example author",
+                        }
+                    ],
+                    "pages": 1,
+                },
+            )
+        author = "Other author" if problem == "author" else "Example author"
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/html"},
+            text=f'<h1 class="title">Old article</h1>'
+            '<time class="date">2020-01-01 12:00</time>'
+            f'<span class="author">{author}</span>'
+            '<a class="entity" href="/?entity=99">Example author</a>'
+            '<div class="body"><p>Recovered</p><script>bad()</script></div>',
+        )
+
+    result = collect_archive(
+        settings=settings,
+        source_key="source_a",
+        source_entity_key="7",
+        config=config,
+        repository=repository,
+        transport=httpx.MockTransport(respond),
+        sleep=lambda _: None,
+    )
+    assert result.failed_records == (1 if problem else 0)
+    assert result.saved_records == (0 if problem else 1)
+    assert all(host in {"archive.example", "previous.example"} for host, _ in requests)
+    assert not any(path.startswith("/article/") for _, path in requests)
+    if not problem:
+        repeat = collect_archive(
+            settings=settings,
+            source_key="source_a",
+            source_entity_key="7",
+            config=config,
+            repository=repository,
+            transport=httpx.MockTransport(respond),
+            sleep=lambda _: None,
+        )
+        assert (
+            repeat.saved_records,
+            repeat.skipped_records,
+            repeat.failed_records,
+        ) == (0, 1, 0)
+        assert requests == [
+            ("archive.example", "/archive"),
+            ("previous.example", "/detail/42"),
+            ("archive.example", "/archive"),
+        ]
+        with sessions() as session:
+            record = session.scalar(
+                select(Record).where(Record.external_key == "previous:42")
+            )
+            assert record is not None
+            assert record.external_key == "previous:42"
+            assert record.entity.external_key == "7"
+            assert record.entity_id == existing_identity
+            assert record.entity.is_active is True
+            assert len(session.scalars(select(Entity)).all()) == 1
+            assert session.scalars(
+                select(Record.external_key).order_by(Record.external_key)
+            ).all() == ["42", "previous:42"]
+            assert "Recovered" in record.body
+            assert "script" not in record.body
+    engine.dispose()

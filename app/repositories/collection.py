@@ -85,6 +85,11 @@ class SqlAlchemyCollectionRepository:
                 )
             )
             if current is not None:
+                if "".join(
+                    unicodedata.normalize("NFC", current.name).split()
+                ) != "".join(unicodedata.normalize("NFC", entity_name).split()):
+                    message = "archive member does not match existing identity"
+                    raise ValueError(message)
                 return
             legacy_rows = session.scalars(
                 select(Entity).where(
@@ -146,7 +151,7 @@ class SqlAlchemyCollectionRepository:
                 or entity.name != record.private_name
             ):
                 entity.external_key = record.entity_external_key
-                entity.name = record.private_name
+                entity.name = record.private_name if new_entity_active else entity.name
                 session.flush()
 
             existing_record = session.scalar(

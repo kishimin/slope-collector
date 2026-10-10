@@ -523,3 +523,77 @@ def invalid_detail_response(problem: str) -> httpx.Response:
     elif problem == "missing-field":
         del detail["body"]
     return httpx.Response(200, json=detail)
+
+
+@pytest.mark.medium
+@pytest.mark.parametrize("active", [True, False])
+def test_archive_previous_origin_preserves_identity_and_distinct_article_keys(
+    archive_context: tuple[Settings, ArchiveConfig], active: bool
+) -> None:
+    """Previous-era articles coexist under the current member without duplicates."""
+    settings, original = archive_context
+    config = ArchiveConfig.model_validate(
+        {
+            **original.model_dump(),
+            "original_base_url": "https://previous.example",
+            "record_key_namespace": "previous",
+        }
+    )
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    sessions = sessionmaker(engine)
+    repository = SqlAlchemyCollectionRepository(sessions)
+    repository.persist(collected_record())
+    with sessions.begin() as session:
+        entity = session.scalar(select(Entity))
+        assert entity is not None
+        identity = entity.id
+        entity.is_active = active
+    requests: list[str] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        requests.append(request.url.path)
+        if request.url.path == "/archive":
+            return httpx.Response(
+                200,
+                json={
+                    "items": [
+                        {
+                            "id": 42,
+                            "url": "https://previous.example/detail/42",
+                            "author": "Example author",
+                        }
+                    ],
+                    "pages": 1,
+                },
+            )
+        return invalid_detail_response("")
+
+    for expected_saved, expected_skipped in ((1, 0), (0, 1)):
+        result = collect_archive(
+            settings=settings,
+            source_key="source_a",
+            source_entity_key="7",
+            config=config,
+            repository=repository,
+            transport=httpx.MockTransport(respond),
+            sleep=lambda _: None,
+        )
+        assert (
+            result.saved_records,
+            result.skipped_records,
+            result.failed_records,
+        ) == (expected_saved, expected_skipped, 0)
+    assert requests == ["/archive", "/article/42", "/archive"]
+    with sessions() as session:
+        entities = session.scalars(select(Entity)).all()
+        assert [(e.id, e.external_key, e.name, e.is_active) for e in entities] == [
+            (identity, "7", "Example author", active)
+        ]
+        records = session.scalars(select(Record).order_by(Record.external_key)).all()
+        assert [(r.entity_id, r.external_key) for r in records] == [
+            (identity, "42"),
+            (identity, "previous:42"),
+        ]
+        assert records[1].source_url == "/detail/42"
+    engine.dispose()

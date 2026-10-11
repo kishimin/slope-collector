@@ -18,7 +18,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from soupsieve import SelectorSyntaxError
 from soupsieve import compile as compile_selector
 
-SourceKey = Literal["source_a", "source_b"]
+SourceKey = Literal["source_a", "source_b", "source_c"]
 
 
 class SourceSelectors(BaseModel):

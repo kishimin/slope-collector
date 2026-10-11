@@ -8,10 +8,11 @@ from dataclasses import replace
 from datetime import datetime
 from html import escape
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, Protocol
-from urllib.parse import urlencode
+from typing import TYPE_CHECKING, Literal, Protocol, Self
+from urllib.parse import urlencode, urlsplit
 from zoneinfo import ZoneInfo
 
+from bs4 import BeautifulSoup
 from pydantic import (
     AnyHttpUrl,
     BaseModel,
@@ -19,6 +20,7 @@ from pydantic import (
     Field,
     JsonValue,
     field_validator,
+    model_validator,
 )
 
 from app.config import SourceConfig, SourceSelectors, load_source_config
@@ -43,6 +45,9 @@ if TYPE_CHECKING:
 
     from app.config import Settings, SourceKey
     from app.scraping.domain import CollectedRecord
+
+MAX_IMAGE_REPLACEMENT_URL_LENGTH = 2048
+MAX_OMITTED_IMAGE_URL_LENGTH = 4096
 
 
 class ArchiveFields(BaseModel):
@@ -80,6 +85,40 @@ class ArchiveConfig(BaseModel):
     )
     allowed_cdn_hosts: tuple[str, ...] = ()
     excluded_source_entity_keys: tuple[str, ...] = ()
+    image_url_replacements: dict[str, str] = Field(default_factory=dict, max_length=100)
+    omitted_image_urls: tuple[str, ...] = Field(default=(), max_length=100)
+
+    @field_validator("omitted_image_urls")
+    @classmethod
+    def require_bounded_image_omissions(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        """Allow exact local image exclusions without fetching their references."""
+        for url in value:
+            if url.startswith("cid:/"):
+                if len(url) > MAX_OMITTED_IMAGE_URL_LENGTH or any(
+                    character.isspace() for character in url
+                ):
+                    message = "archive omitted image URL is invalid"
+                    raise ValueError(message)
+            else:
+                _require_image_url(url, https_only=False)
+        return value
+
+    @model_validator(mode="after")
+    def require_unambiguous_image_recovery(self) -> Self:
+        """Reject contradictory instructions for the same exact image source."""
+        if set(self.omitted_image_urls) & self.image_url_replacements.keys():
+            message = "archive image recovery configuration is ambiguous"
+            raise ValueError(message)
+        return self
+
+    @field_validator("image_url_replacements")
+    @classmethod
+    def require_safe_image_replacements(cls, value: dict[str, str]) -> dict[str, str]:
+        """Keep recovery mappings inside absolute and credential-free URL contracts."""
+        for origin, destination in value.items():
+            _require_image_url(origin, https_only=False)
+            _require_image_url(destination, https_only=True)
+        return value
 
     @field_validator("original_record_id_pattern")
     @classmethod
@@ -189,6 +228,7 @@ def collect_archive(  # noqa: C901, PLR0913, PLR0915 - explicit collection bound
     _key(source_entity_key)
     source = load_source_config(settings, source_key)
     try:
+        _require_image_replacement_hosts(config, source)
         repository.prepare_archive_entity(
             source_key, source.name, source_entity_key, config.entity_name
         )
@@ -393,13 +433,63 @@ def _parse_original_html(  # noqa: PLR0913 - explicit identity and parsing bound
 ) -> CollectedRecord:
     """Validate the original article before assigning its current member key."""
     record = SourceAdapter(source_key, source).parse_detail(
-        html, source_path=original_url
+        _replace_image_urls(html, config), source_path=original_url
     )
     _require_author(record.private_name, config.entity_name)
     if record.external_key != record_id:
         message = "archive original URL does not match record identifier"
         raise ParseContractError(message)
     return replace(record, entity_external_key=source_entity_key)
+
+
+def _require_image_url(value: str, *, https_only: bool) -> None:
+    """Reject non-network image references and ambiguous transport destinations."""
+    try:
+        parsed = urlsplit(value)
+        port = parsed.port
+        valid = (
+            parsed.scheme in ({"https"} if https_only else {"http", "https"})
+            and parsed.hostname is not None
+            and parsed.username is None
+            and parsed.password is None
+            and (not https_only or port in (None, 443))
+            and not any(character.isspace() for character in value)
+            and len(value) <= MAX_IMAGE_REPLACEMENT_URL_LENGTH
+        )
+    except ValueError:
+        valid = False
+    if not valid:
+        message = "archive image replacement URL is invalid"
+        raise ValueError(message)
+
+
+def _require_image_replacement_hosts(
+    config: ArchiveConfig, source: SourceConfig
+) -> None:
+    """Prevent mappings from independently adding an approved image host."""
+    origin = config.original_base_url or source.base_url
+    allowed = {origin.host, *source.allowed_cdn_hosts, *config.allowed_cdn_hosts}
+    if any(
+        urlsplit(url).hostname not in allowed
+        for url in config.image_url_replacements.values()
+    ):
+        message = "archive image replacement leaves the approved host boundary"
+        raise ValueError(message)
+
+
+def _replace_image_urls(html: str, config: ArchiveConfig) -> str:
+    """Apply exact img sources before both sanitization and asset extraction."""
+    if not config.image_url_replacements and not config.omitted_image_urls:
+        return html
+    soup = BeautifulSoup(html, "html.parser")
+    for image in soup.select("img[src]"):
+        source = image.get("src")
+        if isinstance(source, str):
+            if source in config.omitted_image_urls:
+                image.decompose()
+            elif source in config.image_url_replacements:
+                image["src"] = config.image_url_replacements[source]
+    return str(soup)
 
 
 def _require_page_limit(page: int, max_pages: int) -> None:
@@ -463,12 +553,13 @@ def _parse_record(  # noqa: PLR0913 - source identity must remain explicit.
     entity_url = escape("/?" + urlencode({entity_query: source_entity_key}))
     author = escape(config.entity_name)
     title = escape(_text(detail[config.fields.title]))
+    body = _replace_image_urls(_text(detail[config.fields.body]), config)
     html = (
         f'<h1 class="title">{title}</h1>'
         f'<time class="date">{date}</time>'
         f'<span class="author">{author}</span>'
         f'<a class="entity" href="{entity_url}">{author}</a>'
-        f'<div class="body">{_text(detail[config.fields.body])}</div>'
+        f'<div class="body">{body}</div>'
     )
     record = adapter.parse_detail(html, source_path=original_url)
     if record.external_key != record_id:

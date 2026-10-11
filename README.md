@@ -211,6 +211,22 @@ the database-generated `entities.id`:
 uv run python -m app.collector collect-backfill --source source_a --source-entity-key 40
 ```
 
+An optional third source uses the same official and archive workflows. Configure
+its private `SOURCE_C_*` values and explicitly select `--source source_c`:
+
+```powershell
+uv run python -m app.collector collect-backfill --source source_c --source-entity-key 7
+uv run python -m app.collector collect-daily --source source_c
+uv run python -m app.collector collect-backfill --source source_c --source-entity-key 7 --archive-config .env.archive.json
+```
+
+Official collection supports active members; targeted archive backfills recover
+graduated members under the same configured source name. Newly discovered
+archived members remain inactive. Commands without `--source` continue to use
+only `source_a` and `source_b`, so existing schedules do not require third-source
+configuration. All target URLs, selectors, member mappings and archive contracts
+belong in ignored private configuration files.
+
 The targeted backfill adds the requested source entity key to the configured
 list path and follows only that member's pagination. Existing record keys are
 checked before detail requests, so already persisted articles are not fetched
@@ -247,6 +263,21 @@ schema; defaults use the current source contract. Original HTML must identify
 the requested author and the listed article ID. Requests and redirects stay on
 the approved original HTTPS origin with the existing pacing, retry and response
 bounds. JSON remains the default detail format.
+
+An optional private `image_url_replacements` object maps exact legacy image
+`src` URLs to verified HTTPS equivalents. It applies to `img[src]` only in both
+JSON and original HTML details, before sanitization and asset extraction;
+article links and text are not rewritten. Origins must be absolute HTTP(S)
+URLs; destinations must use HTTPS on the already approved original source or
+CDN hosts, without credentials or nonstandard ports. A mapping cannot approve
+a new host. Unmapped images keep the existing rejection rules. Local `cid:`
+references cannot be replaced. When an image cannot be recovered, an optional
+`omitted_image_urls` list removes only images with exactly those `src` values;
+all other images, article text and links retain their existing handling. Each
+entry must be an absolute HTTP(S) URL or a `cid:/` local reference. No local
+reference is fetched. The list is limited to 100 entries and local references
+to 4096 characters. A source cannot be both omitted and replaced. Keep real URL
+mappings and explicit omissions in ignored private files.
 An optional `excluded_source_entity_keys` list blocks selected original member
 keys before any archive requests or identity updates. Exclusions belong in the
 private file alongside the member mappings.

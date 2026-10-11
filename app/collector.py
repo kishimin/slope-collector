@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from app.config import SourceKey
 LOGGER = logging.getLogger(__name__)
 SOURCE_KEYS: tuple[SourceKey, ...] = ("source_a", "source_b")
+AVAILABLE_SOURCE_KEYS: tuple[SourceKey, ...] = (*SOURCE_KEYS, "source_c")
 
 
 def main(arguments: Sequence[str] | None = None) -> int:
@@ -36,7 +37,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
     )
     parser.add_argument(
         "--source",
-        choices=SOURCE_KEYS,
+        choices=AVAILABLE_SOURCE_KEYS,
         help="Run collection for one configured source.",
     )
     parser.add_argument(

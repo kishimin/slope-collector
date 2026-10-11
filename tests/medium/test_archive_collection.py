@@ -174,18 +174,39 @@ def test_archive_backfill_preserves_inactive_identity_and_skips_known_details(
 
 @pytest.mark.medium
 @pytest.mark.parametrize("detail_format", ["json", "html"])
+@pytest.mark.parametrize(
+    "mapping_case", ["exact", "none", "other-src", "other-host", "omit", "other-omit"]
+)
 def test_archive_exact_image_replacements_preserve_body_and_asset_contracts(
-    archive_context: tuple[Settings, ArchiveConfig], detail_format: str
+    archive_context: tuple[Settings, ArchiveConfig],
+    detail_format: str,
+    mapping_case: str,
 ) -> None:
     """Only explicitly approved img sources recover while links and text remain."""
     settings, original = archive_context
     old = "http://legacy.example/old.jpg"
+    if mapping_case in {"omit", "other-omit"}:
+        old = "cid:/legacy/image.jpg"
     new = "https://cdn.example/recovered.jpg"
+    replacement = {old: new}
+    if mapping_case == "none":
+        replacement = {}
+    elif mapping_case == "other-src":
+        replacement = {old + "?other=1": new}
+    elif mapping_case == "other-host":
+        replacement = {old: "https://unapproved.example/recovered.jpg"}
+    elif mapping_case in {"omit", "other-omit"}:
+        replacement = {}
     config = ArchiveConfig.model_validate(
         {
             **original.model_dump(),
             "detail_format": detail_format,
-            "image_url_replacements": {old: new},
+            "image_url_replacements": replacement,
+            "omitted_image_urls": (
+                [old if mapping_case == "omit" else "cid:/legacy/other.jpg"]
+                if mapping_case in {"omit", "other-omit"}
+                else []
+            ),
             "original_selectors": {
                 **dict.fromkeys(("list_item", "detail_link", "next_page"), ".unused"),
                 "title": ".title",
@@ -198,11 +219,15 @@ def test_archive_exact_image_replacements_preserve_body_and_asset_contracts(
         }
     )
     body = f'<p>{old}</p><a href="{old}">Link</a><img src="{old}" alt="Recovered">'
+    if mapping_case in {"omit", "other-omit"}:
+        body += '<img src="https://cdn.example/kept.jpg" alt="Kept">'
     engine = create_engine("sqlite://")
     Base.metadata.create_all(engine)
     sessions = sessionmaker(engine)
+    requests: list[str] = []
 
     def respond(request: httpx.Request) -> httpx.Response:
+        requests.append(str(request.url))
         if request.url.path == "/archive":
             return httpx.Response(
                 200,
@@ -230,7 +255,8 @@ def test_archive_exact_image_replacements_preserve_body_and_asset_contracts(
         return httpx.Response(
             200,
             headers={"content-type": "text/html"},
-            text='<h1 class="title">Recovered</h1><time class="date">2020-01-01 12:00</time>'
+            text='<h1 class="title">Recovered</h1>'
+            '<time class="date">2020-01-01 12:00</time>'
             '<span class="author">Example author</span>'
             '<a class="entity" href="/?entity=7">Example author</a>'
             f'<div class="body">{body}</div>',
@@ -245,14 +271,23 @@ def test_archive_exact_image_replacements_preserve_body_and_asset_contracts(
         transport=httpx.MockTransport(respond),
         sleep=lambda _: None,
     )
+    if mapping_case not in {"exact", "omit"}:
+        assert (result.saved_records, result.failed_records) == (0, 1)
+        if mapping_case == "other-host":
+            assert requests == []
+        engine.dispose()
+        return
     assert (result.saved_records, result.failed_records) == (1, 0)
     with sessions() as session:
         record = session.scalar(select(Record))
         assert record is not None
         assert f"<p>{old}</p>" in record.body
-        assert 'src="/recovered.jpg"' in record.body
+        expected = "/kept.jpg" if mapping_case == "omit" else "/recovered.jpg"
+        assert f'src="{expected}"' in record.body
+        if mapping_case == "omit":
+            assert "Recovered" not in record.body
         assert f'href="{new}"' not in record.body
-        assert session.scalar(select(Asset.source_url)) == "/recovered.jpg"
+        assert session.scalar(select(Asset.source_url)) == expected
     engine.dispose()
 
 
@@ -272,12 +307,37 @@ def test_archive_exact_image_replacements_preserve_body_and_asset_contracts(
 def test_archive_rejects_unsafe_image_replacement_urls(
     archive_context: tuple[Settings, ArchiveConfig], old: str, new: str
 ) -> None:
-    """Image recovery requires absolute HTTP origins and credential-free HTTPS targets."""
+    """Require network origins and credential-free HTTPS image destinations."""
     _, config = archive_context
     with pytest.raises(ValidationError):
         ArchiveConfig.model_validate(
             {**config.model_dump(), "image_url_replacements": {old: new}}
         )
+
+
+@pytest.mark.medium
+@pytest.mark.parametrize(
+    "update",
+    [
+        {"omitted_image_urls": ["javascript:bad()"]},
+        {"omitted_image_urls": ["cid:relative"]},
+        {"omitted_image_urls": ["cid:/" + "x" * 4096]},
+        {"omitted_image_urls": ["cid:/image"] * 101},
+        {
+            "omitted_image_urls": ["http://legacy.example/image.jpg"],
+            "image_url_replacements": {
+                "http://legacy.example/image.jpg": "https://cdn.example/image.jpg"
+            },
+        },
+    ],
+)
+def test_archive_rejects_ambiguous_or_unbounded_image_omissions(
+    archive_context: tuple[Settings, ArchiveConfig], update: dict[str, JsonValue]
+) -> None:
+    """Explicit omissions cannot conflict with replacements or relax URL bounds."""
+    _, config = archive_context
+    with pytest.raises(ValidationError):
+        ArchiveConfig.model_validate({**config.model_dump(), **update})
 
 
 @pytest.mark.medium

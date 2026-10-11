@@ -247,6 +247,21 @@ schema; defaults use the current source contract. Original HTML must identify
 the requested author and the listed article ID. Requests and redirects stay on
 the approved original HTTPS origin with the existing pacing, retry and response
 bounds. JSON remains the default detail format.
+
+An optional private `image_url_replacements` object maps exact legacy image
+`src` URLs to verified HTTPS equivalents. It applies to `img[src]` only in both
+JSON and original HTML details, before sanitization and asset extraction;
+article links and text are not rewritten. Origins must be absolute HTTP(S)
+URLs; destinations must use HTTPS on the already approved original source or
+CDN hosts, without credentials or nonstandard ports. A mapping cannot approve
+a new host. Unmapped images keep the existing rejection rules. Local `cid:`
+references cannot be replaced. When an image cannot be recovered, an optional
+`omitted_image_urls` list removes only images with exactly those `src` values;
+all other images, article text and links retain their existing handling. Each
+entry must be an absolute HTTP(S) URL or a `cid:/` local reference. No local
+reference is fetched. The list is limited to 100 entries and local references
+to 4096 characters. A source cannot be both omitted and replaced. Keep real URL
+mappings and explicit omissions in ignored private files.
 An optional `excluded_source_entity_keys` list blocks selected original member
 keys before any archive requests or identity updates. Exclusions belong in the
 private file alongside the member mappings.

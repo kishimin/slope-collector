@@ -184,19 +184,17 @@ def test_archive_exact_image_replacements_preserve_body_and_asset_contracts(
 ) -> None:
     """Only explicitly approved img sources recover while links and text remain."""
     settings, original = archive_context
-    old = "http://legacy.example/old.jpg"
-    if mapping_case in {"omit", "other-omit"}:
-        old = "cid:/legacy/image.jpg"
+    old = (
+        "cid:/legacy/image.jpg"
+        if mapping_case in {"omit", "other-omit"}
+        else "http://legacy.example/old.jpg"
+    )
     new = "https://cdn.example/recovered.jpg"
-    replacement = {old: new}
-    if mapping_case == "none":
-        replacement = {}
-    elif mapping_case == "other-src":
-        replacement = {old + "?other=1": new}
-    elif mapping_case == "other-host":
-        replacement = {old: "https://unapproved.example/recovered.jpg"}
-    elif mapping_case in {"omit", "other-omit"}:
-        replacement = {}
+    replacement = {
+        "exact": {old: new},
+        "other-src": {old + "?other=1": new},
+        "other-host": {old: "https://unapproved.example/recovered.jpg"},
+    }.get(mapping_case, {})
     config = ArchiveConfig.model_validate(
         {
             **original.model_dump(),

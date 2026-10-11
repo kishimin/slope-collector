@@ -11,7 +11,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
 from app.config import Settings, SourceConfig
-from app.models.collection import Base, Entity, Record, Source
+from app.models.collection import Asset, Base, Entity, Record, Source
 from app.repositories.collection import SqlAlchemyCollectionRepository
 from app.services import archive_collection
 from app.services.archive_collection import ArchiveConfig, collect_archive
@@ -170,6 +170,114 @@ def test_archive_backfill_preserves_inactive_identity_and_skips_known_details(
         assert "script" not in record.body
         assert "onclick" not in record.body
     engine.dispose()
+
+
+@pytest.mark.medium
+@pytest.mark.parametrize("detail_format", ["json", "html"])
+def test_archive_exact_image_replacements_preserve_body_and_asset_contracts(
+    archive_context: tuple[Settings, ArchiveConfig], detail_format: str
+) -> None:
+    """Only explicitly approved img sources recover while links and text remain."""
+    settings, original = archive_context
+    old = "http://legacy.example/old.jpg"
+    new = "https://cdn.example/recovered.jpg"
+    config = ArchiveConfig.model_validate(
+        {
+            **original.model_dump(),
+            "detail_format": detail_format,
+            "image_url_replacements": {old: new},
+            "original_selectors": {
+                **dict.fromkeys(("list_item", "detail_link", "next_page"), ".unused"),
+                "title": ".title",
+                "body": ".body",
+                "published_at": ".date",
+                "author": ".author",
+                "entity_link": ".entity",
+                "asset": "img",
+            },
+        }
+    )
+    body = f'<p>{old}</p><a href="{old}">Link</a><img src="{old}" alt="Recovered">'
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    sessions = sessionmaker(engine)
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/archive":
+            return httpx.Response(
+                200,
+                json={
+                    "pages": 1,
+                    "items": [
+                        {
+                            "id": 42,
+                            "url": "https://source.example/detail/42",
+                            "author": "Example author",
+                        }
+                    ],
+                },
+            )
+        if detail_format == "json":
+            return httpx.Response(
+                200,
+                json={
+                    "title": "Recovered",
+                    "body": body,
+                    "author": "Example author",
+                    "date": "2020-01-01T00:00:00Z",
+                },
+            )
+        return httpx.Response(
+            200,
+            headers={"content-type": "text/html"},
+            text='<h1 class="title">Recovered</h1><time class="date">2020-01-01 12:00</time>'
+            '<span class="author">Example author</span>'
+            '<a class="entity" href="/?entity=7">Example author</a>'
+            f'<div class="body">{body}</div>',
+        )
+
+    result = collect_archive(
+        settings=settings,
+        source_key="source_a",
+        source_entity_key="7",
+        config=config,
+        repository=SqlAlchemyCollectionRepository(sessions),
+        transport=httpx.MockTransport(respond),
+        sleep=lambda _: None,
+    )
+    assert (result.saved_records, result.failed_records) == (1, 0)
+    with sessions() as session:
+        record = session.scalar(select(Record))
+        assert record is not None
+        assert f"<p>{old}</p>" in record.body
+        assert 'src="/recovered.jpg"' in record.body
+        assert f'href="{new}"' not in record.body
+        assert session.scalar(select(Asset.source_url)) == "/recovered.jpg"
+    engine.dispose()
+
+
+@pytest.mark.medium
+@pytest.mark.parametrize(
+    ("old", "new"),
+    [
+        ("cid:local", "https://cdn.example/recovered.jpg"),
+        ("javascript:bad()", "https://cdn.example/recovered.jpg"),
+        ("/old.jpg", "https://cdn.example/recovered.jpg"),
+        ("http://legacy.example/old.jpg", "http://cdn.example/recovered.jpg"),
+        ("http://legacy.example/old.jpg", "https://user@cdn.example/recovered.jpg"),
+        ("http://legacy.example/old.jpg", "https://cdn.example:444/recovered.jpg"),
+        ("http://legacy.example/old.jpg", "https://cdn.example:invalid/recovered.jpg"),
+    ],
+)
+def test_archive_rejects_unsafe_image_replacement_urls(
+    archive_context: tuple[Settings, ArchiveConfig], old: str, new: str
+) -> None:
+    """Image recovery requires absolute HTTP origins and credential-free HTTPS targets."""
+    _, config = archive_context
+    with pytest.raises(ValidationError):
+        ArchiveConfig.model_validate(
+            {**config.model_dump(), "image_url_replacements": {old: new}}
+        )
 
 
 @pytest.mark.medium

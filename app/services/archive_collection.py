@@ -452,7 +452,7 @@ def _require_image_url(value: str, *, https_only: bool) -> None:
             and parsed.hostname is not None
             and parsed.username is None
             and parsed.password is None
-            and port in (None, 443 if parsed.scheme == "https" else 80)
+            and (not https_only or port in (None, 443))
             and not any(character.isspace() for character in value)
             and len(value) <= MAX_IMAGE_REPLACEMENT_URL_LENGTH
         )

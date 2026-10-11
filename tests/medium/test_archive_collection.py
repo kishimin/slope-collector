@@ -174,6 +174,7 @@ def test_archive_backfill_preserves_inactive_identity_and_skips_known_details(
 
 @pytest.mark.medium
 @pytest.mark.parametrize("detail_format", ["json", "html"])
+@pytest.mark.parametrize("legacy_port", ["", ":8080"])
 @pytest.mark.parametrize(
     "mapping_case", ["exact", "none", "other-src", "other-host", "omit", "other-omit"]
 )
@@ -181,13 +182,14 @@ def test_archive_exact_image_replacements_preserve_body_and_asset_contracts(
     archive_context: tuple[Settings, ArchiveConfig],
     detail_format: str,
     mapping_case: str,
+    legacy_port: str,
 ) -> None:
     """Only explicitly approved img sources recover while links and text remain."""
     settings, original = archive_context
     old = (
         "cid:/legacy/image.jpg"
-        if mapping_case in {"omit", "other-omit"}
-        else "http://legacy.example/old.jpg"
+        if mapping_case in {"omit", "other-omit"} and not legacy_port
+        else f"http://legacy.example{legacy_port}/old.jpg"
     )
     new = "https://cdn.example/recovered.jpg"
     replacement = {
@@ -291,11 +293,38 @@ def test_archive_exact_image_replacements_preserve_body_and_asset_contracts(
 
 @pytest.mark.medium
 @pytest.mark.parametrize(
+    "legacy_url",
+    ["http://legacy.example:8080/old.jpg", "https://legacy.example:8443/old.jpg"],
+)
+@pytest.mark.parametrize("operation", ["replace", "omit"])
+def test_archive_accepts_nonstandard_ports_only_in_unfetched_image_references(
+    archive_context: tuple[Settings, ArchiveConfig], legacy_url: str, operation: str
+) -> None:
+    """Legacy sources are exact match strings rather than network destinations."""
+    _, original = archive_context
+    updates = (
+        {"image_url_replacements": {legacy_url: "https://cdn.example/recovered.jpg"}}
+        if operation == "replace"
+        else {"omitted_image_urls": [legacy_url]}
+    )
+    config = ArchiveConfig.model_validate({**original.model_dump(), **updates})
+    if operation == "replace":
+        assert config.image_url_replacements == {
+            legacy_url: "https://cdn.example/recovered.jpg"
+        }
+    else:
+        assert config.omitted_image_urls == (legacy_url,)
+
+
+@pytest.mark.medium
+@pytest.mark.parametrize(
     ("old", "new"),
     [
         ("cid:local", "https://cdn.example/recovered.jpg"),
         ("javascript:bad()", "https://cdn.example/recovered.jpg"),
         ("/old.jpg", "https://cdn.example/recovered.jpg"),
+        ("http://legacy.example:invalid/old.jpg", "https://cdn.example/recovered.jpg"),
+        ("http://legacy.example:65536/old.jpg", "https://cdn.example/recovered.jpg"),
         ("http://legacy.example/old.jpg", "http://cdn.example/recovered.jpg"),
         ("http://legacy.example/old.jpg", "https://user@cdn.example/recovered.jpg"),
         ("http://legacy.example/old.jpg", "https://cdn.example:444/recovered.jpg"),

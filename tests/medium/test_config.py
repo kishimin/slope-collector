@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 import pytest
 from pydantic import ValidationError
 
-from app.config import load_settings, load_source_config
+from app.config import SourceKey, load_settings, load_source_config
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -85,9 +85,11 @@ def test_settings_do_not_expose_invalid_database_url(
 
 
 @pytest.mark.medium
+@pytest.mark.parametrize("source_key", ["source_a", "source_b", "source_c"])
 def test_source_configuration_is_loaded_from_environment(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    source_key: SourceKey,
 ) -> None:
     """Target-specific transport and HTML contracts stay outside source code."""
     values = {
@@ -111,10 +113,10 @@ def test_source_configuration_is_loaded_from_environment(
     }
     monkeypatch.setenv("DATABASE_URL", "mysql+pymysql://db/collector")
     for name, value in values.items():
-        monkeypatch.setenv(name, value)
+        monkeypatch.setenv(name.replace("SOURCE_A", source_key.upper()), value)
     monkeypatch.chdir(tmp_path)
 
-    source = load_source_config(load_settings(), "source_a")
+    source = load_source_config(load_settings(), source_key)
 
     assert str(source.base_url) == "https://source.example/"
     assert source.name == "Example source"
@@ -158,18 +160,20 @@ def test_source_configuration_rejects_names_longer_than_database_column(
 
 
 @pytest.mark.medium
+@pytest.mark.parametrize("source_key", ["source_a", "source_b", "source_c"])
 def test_missing_source_configuration_does_not_leak_environment_values(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
+    source_key: SourceKey,
 ) -> None:
     """Incomplete private configuration fails without printing supplied values."""
     sentinel = "PRIVATE-SOURCE-HOST"
     monkeypatch.setenv("DATABASE_URL", "mysql+pymysql://db/collector")
-    monkeypatch.setenv("SOURCE_A_BASE_URL", f"https://{sentinel}.example")
+    monkeypatch.setenv(f"{source_key.upper()}_BASE_URL", f"https://{sentinel}.example")
     monkeypatch.chdir(tmp_path)
 
     with pytest.raises(ValueError, match="invalid configuration") as error:
-        load_source_config(load_settings(), "source_a")
+        load_source_config(load_settings(), source_key)
 
     assert sentinel not in str(error.value)
 

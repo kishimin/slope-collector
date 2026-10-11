@@ -19,8 +19,10 @@ def test_archive_command_requires_targeted_manual_backfill() -> None:
 
 
 @pytest.mark.small
+@pytest.mark.parametrize("source_key", ["source_a", "source_b", "source_c"])
 def test_archive_command_delegates_to_archive_workflow(
     monkeypatch: pytest.MonkeyPatch,
+    source_key: str,
 ) -> None:
     """An explicit archive file selects recovery instead of official collection."""
     captured: dict[str, object] = {}
@@ -44,7 +46,7 @@ def test_archive_command_delegates_to_archive_workflow(
             [
                 "collect-backfill",
                 "--source",
-                "source_a",
+                source_key,
                 "--source-entity-key",
                 "7",
                 "--archive-config",
@@ -54,7 +56,7 @@ def test_archive_command_delegates_to_archive_workflow(
         == 0
     )
     assert captured["source_entity_key"] == "7"
-    assert captured["source_key"] == "source_a"
+    assert captured["source_key"] == source_key
     assert captured["config"] == "private-config"
 
 
@@ -90,8 +92,10 @@ def test_backfill_command_runs_both_configured_sources(
 
 
 @pytest.mark.small
+@pytest.mark.parametrize("source_key", ["source_a", "source_b", "source_c"])
 def test_backfill_command_passes_source_entity_key(
     monkeypatch: pytest.MonkeyPatch,
+    source_key: str,
 ) -> None:
     """The manual command can target one source-owned member identity."""
     captured: dict[str, object] = {}
@@ -119,20 +123,22 @@ def test_backfill_command_passes_source_entity_key(
             [
                 "collect-backfill",
                 "--source",
-                "source_a",
+                source_key,
                 "--source-entity-key",
                 "40",
             ]
         )
         == 0
     )
-    assert captured["source_keys"] == ("source_a",)
+    assert captured["source_keys"] == (source_key,)
     assert captured["source_entity_key"] == "40"
 
 
 @pytest.mark.small
+@pytest.mark.parametrize("source_key", [None, "source_c"])
 def test_daily_command_selects_incremental_collection_mode(
     monkeypatch: pytest.MonkeyPatch,
+    source_key: str | None,
 ) -> None:
     """The scheduled command delegates to the incremental workflow."""
     captured: dict[str, object] = {}
@@ -159,8 +165,14 @@ def test_daily_command_selects_incremental_collection_mode(
 
     monkeypatch.setattr(collector, "collect_all", collect)
 
-    assert collector.main(["collect-daily"]) == 0
+    arguments = ["collect-daily"]
+    if source_key is not None:
+        arguments.extend(["--source", source_key])
+    assert collector.main(arguments) == 0
     assert captured["mode"] is CollectionMode.DAILY
+    assert captured["source_keys"] == (
+        (source_key,) if source_key is not None else ("source_a", "source_b")
+    )
 
 
 @pytest.mark.small

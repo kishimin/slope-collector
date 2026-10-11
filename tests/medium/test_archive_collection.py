@@ -352,6 +352,66 @@ def test_archive_persistence_creates_an_inactive_member() -> None:
 
 
 @pytest.mark.medium
+@pytest.mark.parametrize("source_name", ["source_c"])
+def test_third_source_archive_preserves_identity_and_restart_checkpoints(
+    archive_context: tuple[Settings, ArchiveConfig], source_name: str
+) -> None:
+    """Preserve the archive persistence and restart contract for the optional source."""
+    settings, config = archive_context
+    engine = create_engine("sqlite://")
+    Base.metadata.create_all(engine)
+    sessions = sessionmaker(engine)
+    requests: list[str] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        requests.append(request.url.path)
+        if request.url.path == "/archive":
+            return httpx.Response(
+                200,
+                json={
+                    "pages": 1,
+                    "items": [
+                        {
+                            "id": 42,
+                            "url": "https://source.example/detail/42",
+                            "author": "Example author",
+                        }
+                    ],
+                },
+            )
+        return invalid_detail_response("")
+
+    for saved, skipped in ((1, 0), (0, 1)):
+        result = collect_archive(
+            settings=settings,
+            source_key="source_c",
+            source_entity_key="7",
+            config=config,
+            repository=SqlAlchemyCollectionRepository(sessions),
+            transport=httpx.MockTransport(respond),
+            sleep=lambda _: None,
+        )
+        assert (
+            result.saved_records,
+            result.skipped_records,
+            result.failed_records,
+        ) == (saved, skipped, 0)
+    assert requests == ["/archive", "/article/42", "/archive"]
+    with sessions() as session:
+        sources = session.scalars(select(Source)).all()
+        entities = session.scalars(select(Entity)).all()
+        records = session.scalars(select(Record)).all()
+        assert [s.name for s in sources] == [source_name]
+        assert len(entities) == 1
+        assert entities[0].external_key == "7"
+        assert entities[0].is_active is False
+        assert [(r.entity_id, r.external_key) for r in records] == [
+            (entities[0].id, "42")
+        ]
+    engine.dispose()
+
+
+@pytest.mark.medium
 def test_archive_exclusion_preserves_records_without_any_source_requests(
     archive_context: tuple[Settings, ArchiveConfig],
 ) -> None:

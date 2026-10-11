@@ -211,6 +211,22 @@ the database-generated `entities.id`:
 uv run python -m app.collector collect-backfill --source source_a --source-entity-key 40
 ```
 
+An optional third source uses the same official and archive workflows. Configure
+its private `SOURCE_C_*` values and explicitly select `--source source_c`:
+
+```powershell
+uv run python -m app.collector collect-backfill --source source_c --source-entity-key 7
+uv run python -m app.collector collect-daily --source source_c
+uv run python -m app.collector collect-backfill --source source_c --source-entity-key 7 --archive-config .env.archive.json
+```
+
+Official collection supports active members; targeted archive backfills recover
+graduated members under the same configured source name. Newly discovered
+archived members remain inactive. Commands without `--source` continue to use
+only `source_a` and `source_b`, so existing schedules do not require third-source
+configuration. All target URLs, selectors, member mappings and archive contracts
+belong in ignored private configuration files.
+
 The targeted backfill adds the requested source entity key to the configured
 list path and follows only that member's pagination. Existing record keys are
 checked before detail requests, so already persisted articles are not fetched

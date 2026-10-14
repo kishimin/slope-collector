@@ -212,8 +212,8 @@ class SourceAdapter:
             if not isinstance(source, str):
                 message = "asset URL is invalid"
                 raise ParseContractError(message)
-            if urlsplit(source).scheme == "blob":
-                # Browser-scoped URLs cannot be retrieved after the page is fetched.
+            if urlsplit(source).scheme in {"blob", "file"}:
+                # Browser- and device-local images are unavailable to the collector.
                 continue
             alt = image.get("alt")
             assets.append(
@@ -242,7 +242,7 @@ class SourceAdapter:
             if (
                 element.name == "img"
                 and isinstance(source, str)
-                and urlsplit(source).scheme == "blob"
+                and urlsplit(source).scheme in {"blob", "file"}
             ):
                 element.decompose()
                 continue

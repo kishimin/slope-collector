@@ -155,6 +155,77 @@ def test_detail_parser_keeps_first_party_images_and_article_with_blob_image() ->
 
 
 @pytest.mark.small
+@pytest.mark.parametrize(
+    "image_url",
+    [
+        "file:///private/var/mobile/tmp/mail.jpeg",
+        "FILE:///private/var/mobile/tmp/mail.jpeg",
+        "file://device/private/image.jpeg",
+    ],
+)
+def test_detail_parser_omits_local_images_and_preserves_available_content(
+    image_url: str,
+) -> None:
+    """Device-local images cannot discard article text or available images."""
+    html = f"""
+    <article>
+      <h1 class="title">Example title</h1>
+      <time class="date">2026-09-18 12:30</time>
+      <span class="author">Example author</span>
+      <a class="author-link" href="/authors?entity=7">Example author</a>
+      <div class="body">
+        <img src="https://cdn.example/one.jpg" alt="One">
+        <p>Article text</p>
+        <img src="{image_url}" alt="Unavailable">
+        <img src="https://source.example/two.jpg" alt="Two">
+      </div>
+    </article>
+    """
+
+    record = SourceAdapter("source_a", source_config()).parse_detail(
+        html, source_path="/detail/42"
+    )
+
+    assert "Article text" in record.body_html
+    assert image_url not in record.body_html
+    assert "Unavailable" not in record.body_html
+    assert "/one.jpg" in record.body_html
+    assert "/two.jpg" in record.body_html
+    assert [(asset.source_path, asset.position) for asset in record.assets] == [
+        ("/one.jpg", 0),
+        ("/two.jpg", 1),
+    ]
+
+
+@pytest.mark.small
+@pytest.mark.parametrize(
+    "image_url",
+    [
+        "https://outside.example/image.jpg",
+        "http://cdn.example/image.jpg",
+        "data:image/png;base64,AAAA",
+        "javascript:alert(1)",
+    ],
+)
+def test_detail_parser_rejects_other_unapproved_image_urls(image_url: str) -> None:
+    """Ignoring local images does not widen the approved image URL boundary."""
+    html = f"""
+    <article>
+      <h1 class="title">Example title</h1>
+      <time class="date">2026-09-18 12:30</time>
+      <span class="author">Example author</span>
+      <a class="author-link" href="/authors?entity=7">Example author</a>
+      <div class="body"><p>Article text</p><img src="{image_url}"></div>
+    </article>
+    """
+
+    with pytest.raises(ParseContractError, match="approved host boundary"):
+        SourceAdapter("source_a", source_config()).parse_detail(
+            html, source_path="/detail/42"
+        )
+
+
+@pytest.mark.small
 def test_detail_parser_removes_nested_disallowed_elements() -> None:
     """Removing a parent also safely skips its detached descendants."""
     html = """

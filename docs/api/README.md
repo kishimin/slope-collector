@@ -27,7 +27,10 @@ Returns entities. `source_id` is optional.
 
 #### Query parameters
 
-- `source_id`: Filter by source ID.
+- `source_id`: Filter by source ID. An unregistered source ID returns
+  `404 NOT_FOUND`. A registered source with no entities returns `200` with an
+  empty `entities` array. Omitting the filter returns all entities. Nonpositive
+  IDs and non-integer values return `422 VALIDATION_ERROR`.
 
 #### Examples
 

@@ -152,11 +152,8 @@ def create_records_router(  # noqa: C901
     async def list_entities(
         source_id: Annotated[int | None, Query(ge=1)] = None,
     ) -> EntitiesResponse:
-        statement = select(Entity).order_by(Entity.id)
-        if source_id is not None:
-            statement = statement.where(Entity.source_id == source_id)
         with sessions() as session:
-            rows = session.scalars(statement).all()
+            rows = _entities_for_source(session, source_id)
         return EntitiesResponse(entities=[_entity_response(row) for row in rows])
 
     @router.get("/entities/all", response_model=FullEntitiesResponse)
@@ -265,6 +262,15 @@ def create_records_router(  # noqa: C901
         )
 
     return router
+
+
+def _entities_for_source(session: Session, source_id: int | None) -> list[Entity]:
+    if source_id is not None and session.get(Source, source_id) is None:
+        raise _not_found()
+    statement = select(Entity).order_by(Entity.id)
+    if source_id is not None:
+        statement = statement.where(Entity.source_id == source_id)
+    return list(session.scalars(statement).all())
 
 
 def _entity_response(entity: Entity) -> EntityResponse:

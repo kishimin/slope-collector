@@ -176,7 +176,7 @@ async def test_entity_record_range_rejects_invalid_bounds(
 async def test_entity_record_dates_preserve_author_scope(
     application: FastAPI, parameters: dict[str, str]
 ) -> None:
-    """Inactive authors' saved records remain readable and never include other authors."""
+    """Inactive authors' stored records remain readable within their own scope."""
     async with AsyncClient(
         transport=ASGITransport(app=application), base_url="http://test"
     ) as client:
@@ -191,7 +191,7 @@ async def test_entity_record_dates_preserve_author_scope(
 async def test_unknown_and_empty_entities_keep_distinct_responses(
     application: FastAPI,
 ) -> None:
-    """An unknown entity is 404; an existing entity without articles is an empty list."""
+    """Unknown entities return 404; existing empty entities return an empty list."""
     async with AsyncClient(
         transport=ASGITransport(app=application), base_url="http://test"
     ) as client:

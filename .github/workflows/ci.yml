@@ -96,3 +96,5 @@ jobs:
           deploy/systemd/slope-collector.service
           deploy/systemd/slope-collector-backfill.service
           deploy/systemd/slope-collector.timer
+          deploy/systemd/slope-collector-recovery.service
+          deploy/systemd/slope-collector-recovery.timer

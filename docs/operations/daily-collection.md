@@ -1,5 +1,8 @@
 # Daily collection operations
 
+For per-site pauses and automatic recovery checks, see
+[Maintenance controls](maintenance-controls.md).
+
 The daily collector runs as a systemd service and is started by a timer at
 03:00 in `Asia/Tokyo`. The timer performs incremental collection only. The
 initial full-history operation remains a separate manual backfill command.

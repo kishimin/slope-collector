@@ -18,6 +18,7 @@ from app.repositories.control import SqlAlchemyControlRepository
 
 if TYPE_CHECKING:
     from pathlib import Path
+
     from sqlalchemy.orm import Session
 
 

@@ -557,6 +557,9 @@ def probe_archive(  # noqa: PLR0913 - explicit bounded recovery boundary.
             previous_pages=None,
             max_pages=settings.collector_max_pages,
         )
+        if not references:
+            message = "archive recovery list contains no articles"
+            raise ParseContractError(message)
         item = references[0]
         key = _key(item[config.fields.record_id])
         _require_author(item[config.fields.author], config.entity_name)

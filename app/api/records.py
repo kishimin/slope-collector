@@ -333,8 +333,14 @@ def _create_date_range_router(sessions: sessionmaker[Session]) -> APIRouter:
 
     @router.get("/records/by-date", response_model=DateRangeRecordsResponse)
     async def list_records_by_date(
-        from_date: Annotated[datetime_module.date, Query(alias="from")],
-        to_date: Annotated[datetime_module.date, Query(alias="to")],
+        from_date: Annotated[
+            datetime_module.date,
+            Query(alias="from", description="Inclusive start date in Asia/Tokyo."),
+        ],
+        to_date: Annotated[
+            datetime_module.date,
+            Query(alias="to", description="Inclusive end date in Asia/Tokyo."),
+        ],
         entity_id: Annotated[int | None, Query(ge=1)] = None,
     ) -> DateRangeRecordsResponse:
         if from_date > to_date:
@@ -343,6 +349,14 @@ def _create_date_range_router(sessions: sessionmaker[Session]) -> APIRouter:
                 detail={
                     "code": "BAD_REQUEST",
                     "message": "The start date must not be after the end date.",
+                },
+            )
+        if from_date == datetime_module.date.min:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "code": "BAD_REQUEST",
+                    "message": "The start date is outside the supported UTC range.",
                 },
             )
         start = datetime_module.datetime.combine(

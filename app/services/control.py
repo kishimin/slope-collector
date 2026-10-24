@@ -1,4 +1,4 @@
-"""Request-boundary maintenance enforcement independent of HTTP and storage."""
+"""Recovery orchestration that preserves newer operator maintenance decisions."""
 
 from __future__ import annotations
 

@@ -227,6 +227,13 @@ def collect_archive(  # noqa: PLR0913 - explicit collection boundary.
     controls: ControlRepository | None = None,
 ) -> CollectionResult:
     """Supplement every archive page while preserving original checkpoints."""
+    paused_sites: set[str] = set()
+    try:
+        require_collection_allowed(
+            controls, Target(source_key, "archive"), paused_sites
+        )
+    except CollectionPausedError:
+        return CollectionResult(paused_sites=tuple(sorted(paused_sites)))
     if source_entity_key in config.excluded_source_entity_keys:
         return CollectionResult()
     _key(source_entity_key)

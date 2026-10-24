@@ -108,6 +108,10 @@ def collect_all(  # noqa: C901, PLR0912, PLR0913, PLR0915 - explicit workflow bo
         def before_request(target: Target = target) -> None:
             require_collection_allowed(controls, target, paused_sites)
 
+        try:
+            before_request()
+        except CollectionPausedError:
+            continue
         LOGGER.info("collection source started source=%s mode=%s", source_key, mode)
         config = load_source_config(settings, source_key)
         if source_entity_key is not None and not repository.is_entity_active(

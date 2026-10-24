@@ -75,7 +75,9 @@ class ControlRepository(Protocol):
     def resume(self, target: Target) -> ControlState:
         """Unconditionally release a pause without external requests."""
 
-    def claim_check(self, target: Target, now: datetime) -> ControlState | None:
+    def claim_check(
+        self, target: Target, now: datetime, *, lease_seconds: float = 0
+    ) -> ControlState | None:
         """Claim one due recovery check across worker processes."""
 
     def finish_check(

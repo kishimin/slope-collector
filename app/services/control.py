@@ -44,8 +44,19 @@ def run_recovery_checks(
 ) -> RecoveryResult:
     """Check due automatic pauses once and release only the claimed decision."""
     checked = resumed = failed = 0
+    # A check can include two bounded responses and two pacing waits. Leave room
+    # for parsing so a short interval cannot create concurrent external requests.
+    lease_seconds = (
+        2
+        * (
+            settings.collector_response_timeout_seconds
+            + settings.collector_request_interval_seconds
+            + settings.collector_request_jitter_seconds
+        )
+        + 60
+    )
     for target in TARGETS:
-        claim = repository.claim_check(target, now())
+        claim = repository.claim_check(target, now(), lease_seconds=lease_seconds)
         if claim is None:
             continue
         checked += 1

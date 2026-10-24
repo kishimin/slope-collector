@@ -95,7 +95,9 @@ class SqlAlchemyControlRepository:
             row.revision = str(uuid4())
             return _state(target, row)
 
-    def claim_check(self, target: Target, now: datetime) -> ControlState | None:
+    def claim_check(
+        self, target: Target, now: datetime, *, lease_seconds: float = 0
+    ) -> ControlState | None:
         """Atomically reserve a due check before sending external requests."""
         with self._transaction() as session:
             row = session.get(CollectionControl, target.key)
@@ -114,7 +116,10 @@ class SqlAlchemyControlRepository:
                 .values(
                     revision=revision,
                     next_check_at=_naive(now)
-                    + timedelta(minutes=row.check_interval_minutes),
+                    + max(
+                        timedelta(minutes=row.check_interval_minutes),
+                        timedelta(seconds=lease_seconds),
+                    ),
                 )
             )
             if not result.rowcount:

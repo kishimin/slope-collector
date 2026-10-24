@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING
 import pytest
 from fastapi import status
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
 from app.config import Settings
 from app.main import create_app
@@ -15,7 +17,7 @@ from app.models.control import Target
 from app.repositories.control import SqlAlchemyControlRepository
 
 if TYPE_CHECKING:
-    from sqlalchemy.orm import Session, sessionmaker
+    from sqlalchemy.orm import Session
 
 
 @pytest.fixture
@@ -153,9 +155,6 @@ async def test_invalid_pause_leaves_collection_running(
 @pytest.mark.medium
 async def test_control_storage_failure_is_sanitized() -> None:
     """A missing control table fails safely instead of exposing database details."""
-    from sqlalchemy import create_engine  # noqa: PLC0415 - local failing-storage fixture.
-    from sqlalchemy.orm import sessionmaker  # noqa: PLC0415
-
     engine = create_engine("sqlite://")
     settings = Settings.model_validate({"database_url": "mysql+pymysql://db/collector"})
     async with AsyncClient(

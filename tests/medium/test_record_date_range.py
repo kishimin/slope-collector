@@ -18,6 +18,7 @@ from app.models.collection import Base, Entity, Record, Source
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+    from typing import Literal
 
 pytestmark = [pytest.mark.anyio, pytest.mark.medium]
 
@@ -109,3 +110,122 @@ async def test_date_range_returns_every_record_including_both_boundary_days(
         "published_at": "2026-10-04T12:00:00Z",
     }
     assert set(payload) == {"records"}
+
+
+@pytest.mark.parametrize(
+    ("parameters", "expected_status", "expected_code"),
+    [
+        ({}, 422, "VALIDATION_ERROR"),
+        ({"from": "2026-10-01"}, 422, "VALIDATION_ERROR"),
+        ({"to": "2026-10-07"}, 422, "VALIDATION_ERROR"),
+        ({"from": "2026-02-30", "to": "2026-10-07"}, 422, "VALIDATION_ERROR"),
+        ({"from": "2026-10-01", "to": "invalid"}, 422, "VALIDATION_ERROR"),
+        ({"from": "2026-10-08", "to": "2026-10-01"}, 400, "BAD_REQUEST"),
+        (
+            {"from": "2026-10-01", "to": "2026-10-07", "entity_id": "0"},
+            422,
+            "VALIDATION_ERROR",
+        ),
+    ],
+)
+async def test_date_range_rejects_missing_or_invalid_parameters(
+    application: FastAPI,
+    parameters: dict[str, str],
+    expected_status: int,
+    expected_code: str,
+) -> None:
+    """Both dates must be valid and ordered, and entity IDs must be positive."""
+    async with AsyncClient(
+        transport=ASGITransport(app=application), base_url="http://test"
+    ) as client:
+        response = await client.get("/records/by-date", params=parameters)
+
+    assert response.status_code == expected_status
+    assert response.json()["code"] == expected_code
+
+
+@pytest.mark.parametrize(
+    ("parameters", "expected_ids"),
+    [
+        (
+            {"from": "2026-10-01", "to": "2026-10-07", "entity_id": "2"},
+            [105],
+        ),
+        ({"from": "2026-10-01", "to": "2026-10-01"}, [106]),
+        ({"from": "2026-10-07", "to": "2026-10-07"}, [107]),
+        ({"from": "2026-10-02", "to": "2026-10-03"}, []),
+        ({"from": "9999-12-31", "to": "9999-12-31"}, []),
+        (
+            {"from": "2026-10-01", "to": "2026-10-07", "entity_id": "999"},
+            [],
+        ),
+    ],
+)
+async def test_date_range_honors_entity_and_single_day_filters(
+    application: FastAPI, parameters: dict[str, str], expected_ids: list[int]
+) -> None:
+    """Only matching rows are returned, including inactive entities' stored rows."""
+    async with AsyncClient(
+        transport=ASGITransport(app=application), base_url="http://test"
+    ) as client:
+        response = await client.get("/records/by-date", params=parameters)
+
+    assert response.status_code == status.HTTP_200_OK
+    assert [record["id"] for record in response.json()["records"]] == expected_ids
+
+
+async def test_existing_record_list_still_paginates(application: FastAPI) -> None:
+    """Adding complete retrieval does not change existing list or detail URLs."""
+    async with AsyncClient(
+        transport=ASGITransport(app=application), base_url="http://test"
+    ) as client:
+        first_page = await client.get(
+            "/records", params={"from": "2026-10-01", "to": "2026-10-07"}
+        )
+        last_page = await client.get(
+            "/records",
+            params={
+                "from": "2026-10-01",
+                "to": "2026-10-07",
+                "limit": 100,
+                "offset": 100,
+            },
+        )
+        detail = await client.get("/records/105")
+
+    assert first_page.status_code == status.HTTP_200_OK
+    assert first_page.json()["pagination"] == {"limit": 20, "offset": 0, "total": 107}
+    assert len(first_page.json()["records"]) == first_page.json()["pagination"]["limit"]
+    assert last_page.json()["pagination"] == {"limit": 100, "offset": 100, "total": 107}
+    assert [record["id"] for record in last_page.json()["records"]] == [
+        6,
+        5,
+        4,
+        3,
+        2,
+        1,
+        106,
+    ]
+    assert detail.status_code == status.HTTP_200_OK
+    assert detail.json()["body"] == "<p>Body 105</p>"
+
+
+@pytest.mark.parametrize("environment", ["production", "test"])
+async def test_date_range_is_not_available_outside_development(
+    environment: Literal["production", "test"],
+) -> None:
+    """Complete date-range reads share the existing development-only boundary."""
+    settings = Settings(
+        environment=environment,
+        debug=False,
+        database_url=SecretStr("mysql+pymysql://db/collector"),
+    )
+    application = create_app(settings)
+    async with AsyncClient(
+        transport=ASGITransport(app=application), base_url="http://test"
+    ) as client:
+        response = await client.get(
+            "/records/by-date", params={"from": "2026-10-01", "to": "2026-10-07"}
+        )
+
+    assert response.status_code == status.HTTP_404_NOT_FOUND

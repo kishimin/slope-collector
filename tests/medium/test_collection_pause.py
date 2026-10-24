@@ -25,7 +25,9 @@ if TYPE_CHECKING:
 
 @pytest.mark.medium
 @pytest.mark.parametrize("mode", [CollectionMode.DAILY, CollectionMode.BACKFILL])
-@pytest.mark.parametrize("pause_at", ["before", "list", "detail", "retry", "wait"])
+@pytest.mark.parametrize(
+    "pause_at", ["before", "list", "detail", "retry", "wait", "redirect"]
+)
 def test_official_pause_stops_next_request_and_keeps_completed_article(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
@@ -54,10 +56,13 @@ def test_official_pause_stops_next_request_and_keeps_completed_article(
     def respond(request: httpx.Request) -> httpx.Response:
         paths.append(request.url.path)
         if request.url.path == "/list":
-            if pause_at in {"list", "retry"}:
+            if pause_at in {"list", "retry", "redirect"}:
                 pause()
-            if pause_at == "retry":
-                return httpx.Response(503)
+            if pause_at in {"retry", "redirect"}:
+                return httpx.Response(
+                    {"retry": 503, "redirect": 302}[pause_at],
+                    headers={"location": "/redirected"},
+                )
             html = (
                 '<article class="entry"><a class="detail" href="/detail/1">'
                 'One</a><a class="detail" href="/detail/2">Two</a></article>'
@@ -94,6 +99,7 @@ def test_official_pause_stops_next_request_and_keeps_completed_article(
         "detail": ["/list", "/detail/1"],
         "retry": ["/list"],
         "wait": [],
+        "redirect": ["/list"],
     }
     assert paths == expected[pause_at]
     assert result.saved_records == (1 if pause_at == "detail" else 0)

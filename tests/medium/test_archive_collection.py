@@ -11,7 +11,7 @@ from pydantic import JsonValue, SecretStr, ValidationError
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
-from app.config import Settings, SourceConfig
+from app.config import Settings, SourceConfig, SourceSelectors
 from app.models.collection import Asset, Base, Entity, Record, Source
 from app.models.control import Target
 from app.recovery import run_recovery_checks
@@ -181,14 +181,33 @@ def test_archive_pause_preserves_completed_records(
 
 @pytest.mark.medium
 @pytest.mark.parametrize("problem", [None, "list", "detail", "missing-field"])
+@pytest.mark.parametrize("detail_format", ["json", "html"])
 def test_archive_recovery_uses_private_contract_without_saving(
     archive_context: tuple[Settings, ArchiveConfig],
     control_sessions: sessionmaker[Session],
     tmp_path: Path,
     problem: str | None,
+    detail_format: str,
 ) -> None:
     """Only a valid archive list and first detail release a due automatic pause."""
     settings, config = archive_context
+    if detail_format == "html":
+        config = config.model_copy(
+            update={
+                "detail_format": "html",
+                "original_selectors": SourceSelectors(
+                    list_item=".entry",
+                    detail_link=".detail",
+                    title=".title",
+                    body=".body",
+                    published_at=".date",
+                    author=".author",
+                    entity_link=".author-link",
+                    asset=".body img",
+                    next_page=".next",
+                ),
+            }
+        )
     contract = tmp_path / ".env.archive.json"
     contract.write_text(config.model_dump_json(), encoding="utf-8")
     manifest = tmp_path / ".env.recovery.json"
@@ -224,6 +243,16 @@ def test_archive_recovery_uses_private_contract_without_saving(
                     "pages": 1,
                 },
             )
+        if detail_format == "html":
+            html = (
+                '<h1 class="title">Recovered</h1><time class="date">'
+                '2026-09-18 12:30</time><span class="author">Example author</span>'
+                '<a class="author-link" href="/author?entity=7">Example author</a>'
+                '<div class="body"><p>Recovered</p></div>'
+            )
+            if problem in {"detail", "missing-field"}:
+                html = "<h1>Maintenance</h1>"
+            return httpx.Response(200, headers={"content-type": "text/html"}, text=html)
         if problem == "detail":
             return httpx.Response(200, json={"author": "Wrong author"})
         if problem == "missing-field":
@@ -245,7 +274,8 @@ def test_archive_recovery_uses_private_contract_without_saving(
         transport=httpx.MockTransport(respond),
         sleep=lambda _: None,
     )
-    assert paths == (["/archive"] if problem == "list" else ["/archive", "/article/42"])
+    detail_path = "/detail/42" if detail_format == "html" else "/article/42"
+    assert paths == (["/archive"] if problem == "list" else ["/archive", detail_path])
     assert result.checked == 1
     assert result.resumed == (1 if problem is None else 0)
     assert controls.get(target).paused is (problem is not None)

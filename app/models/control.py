@@ -1,6 +1,7 @@
 """Maintenance state shared by operators, collectors, and recovery checks."""
 
 from __future__ import annotations
+
 from dataclasses import dataclass
 from datetime import datetime  # noqa: TC003 - API dataclass schemas resolve this type.
 from typing import TYPE_CHECKING, Literal, Protocol

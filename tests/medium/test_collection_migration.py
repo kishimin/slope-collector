@@ -63,6 +63,43 @@ def load_migration(name: str) -> ModuleType:
 
 
 @pytest.mark.medium
+def test_maintenance_schema_upgrade_preserves_existing_data() -> None:
+    """Control migrations can be applied and reversed without changing source data."""
+    engine = sa.create_engine("sqlite://")
+    metadata = sa.MetaData()
+    sources = sa.Table(
+        "sources",
+        metadata,
+        sa.Column("id", sa.Integer(), primary_key=True),
+        sa.Column("name", sa.String(255), nullable=False),
+    )
+    metadata.create_all(engine)
+    migration_context, operations = load_alembic_runtime()
+    with engine.begin() as connection:
+        connection.execute(sources.insert().values(id=1, name="Existing source"))
+        migration = load_migration("20261024_0003_add_collection_controls")
+        migration.__dict__["op"] = operations(migration_context.configure(connection))
+        migration.upgrade()
+        controls = sa.Table(
+            "collection_controls", sa.MetaData(), autoload_with=connection
+        )
+        connection.execute(
+            controls.insert().values(
+                target="source_a:official",
+                paused=True,
+                resume_mode="manual",
+                check_interval_minutes=60,
+                revision="example",
+            )
+        )
+        assert connection.scalar(sa.select(controls.c.paused)) is True
+        migration.downgrade()
+        assert "collection_controls" not in sa.inspect(connection).get_table_names()
+        assert connection.scalar(sa.select(sources.c.name)) == "Existing source"
+    engine.dispose()
+
+
+@pytest.mark.medium
 def test_entity_identity_upgrade_changes_an_existing_schema() -> None:
     """Databases stamped at the first revision receive stable entity identities."""
     engine = sa.create_engine("sqlite://")

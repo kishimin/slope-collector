@@ -17,6 +17,7 @@ from app.models.control import Target
 from app.repositories.control import SqlAlchemyControlRepository
 
 if TYPE_CHECKING:
+    from pathlib import Path
     from sqlalchemy.orm import Session
 
 
@@ -170,3 +171,49 @@ async def test_control_storage_failure_is_sanitized() -> None:
             "message": "Collection control storage is unavailable.",
         }
     engine.dispose()
+
+
+@pytest.mark.anyio
+@pytest.mark.medium
+@pytest.mark.parametrize("interval", [None, 1, 1440])
+async def test_automatic_pause_persists_default_and_boundary_intervals(
+    control_sessions: sessionmaker[Session], tmp_path: Path, interval: int | None
+) -> None:
+    """A configured automatic pause survives restart with a UTC check deadline."""
+    manifest = tmp_path / ".env.recovery.json"
+    manifest.write_text('[{"source":"source_a","site":"official"}]', encoding="utf-8")
+    settings = Settings.model_validate(
+        {
+            "database_url": "mysql+pymysql://db/collector",
+            "collector_recovery_config_path": str(manifest),
+        }
+    )
+    body: dict[str, object] = {"resume_mode": "automatic"}
+    if interval is not None:
+        body["check_interval_minutes"] = interval
+    async with AsyncClient(
+        transport=ASGITransport(app=create_app(settings, sessions=control_sessions)),
+        base_url="http://test",
+    ) as client:
+        response = await client.post(
+            "/collection-controls/source_a/official/pause", json=body
+        )
+        assert response.status_code == status.HTTP_200_OK
+        saved = response.json()
+        assert saved["paused"] is True
+        assert saved["check_interval_minutes"] == (interval or 60)
+        assert saved["next_check_at"].endswith("Z")
+        assert saved["reason"] is None
+    async with AsyncClient(
+        transport=ASGITransport(app=create_app(settings, sessions=control_sessions)),
+        base_url="http://test",
+    ) as client:
+        states = (await client.get("/collection-controls")).json()["controls"]
+        assert (
+            next(
+                state
+                for state in states
+                if state["source"] == "source_a" and state["site"] == "official"
+            )
+            == saved
+        )

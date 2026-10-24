@@ -126,3 +126,111 @@ def test_recovery_worker_cannot_claim_an_inflight_short_interval_check(
         transport=httpx.MockTransport(respond),
     )
     assert second_claims == [0]
+
+
+@pytest.mark.medium
+@pytest.mark.parametrize("action", ["pause", "resume"])
+@pytest.mark.parametrize("stage", ["list", "detail"])
+def test_manual_action_during_probe_is_preserved(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    control_sessions: sessionmaker[Session],
+    action: str,
+    stage: str,
+) -> None:
+    """A probe cannot override a new pause or continue requests after manual resume."""
+    configure_source(monkeypatch, tmp_path)
+    manifest = tmp_path / ".env.recovery.json"
+    manifest.write_text('[{"source":"source_a","site":"official"}]', encoding="utf-8")
+    monkeypatch.setenv("COLLECTOR_RECOVERY_CONFIG_PATH", str(manifest))
+    controls = SqlAlchemyControlRepository(control_sessions)
+    target = Target("source_a", "official")
+    now = datetime(2026, 10, 24, tzinfo=UTC)
+    controls.pause(target, resume_mode="automatic", interval=60, reason=None, now=now)
+    paths: list[str] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        paths.append(request.url.path)
+        if (stage == "list" and request.url.path == "/list") or (
+            stage == "detail" and request.url.path != "/list"
+        ):
+            if action == "pause":
+                controls.pause(
+                    target,
+                    resume_mode="manual",
+                    interval=60,
+                    reason="New pause",
+                    now=now,
+                )
+            else:
+                controls.resume(target)
+        html = (
+            '<article class="entry"><a class="detail" '
+            'href="/detail/1">One</a></article>'
+            if request.url.path == "/list"
+            else '<h1 class="title">Title</h1>'
+            '<time class="date">2026-09-18 12:30</time>'
+            '<span class="author">Author</span><a class="author-link" '
+            'href="/author?entity=7">Author</a>'
+            '<div class="body"><p>Body</p></div>'
+        )
+        return httpx.Response(200, headers={"content-type": "text/html"}, text=html)
+
+    result = run_recovery_checks(
+        settings=load_settings(),
+        repository=controls,
+        now=lambda: now + timedelta(hours=1),
+        sleep=lambda _: None,
+        transport=httpx.MockTransport(respond),
+    )
+    assert paths == (["/list"] if stage == "list" else ["/list", "/detail/1"])
+    assert result.resumed == 0
+    assert result.failed == 0
+    state = controls.get(target)
+    assert state.paused is (action == "pause")
+    assert state.last_checked_at is None
+
+
+@pytest.mark.medium
+@pytest.mark.parametrize(
+    "manifest_text",
+    [
+        "not JSON",
+        "[]",
+        '[{"source":"source_a","site":"archive"}]',
+        '[{"source":"source_a","site":"official"},{"source":"source_a","site":"official"}]',
+        '[{"source":"source_a","site":"official","archive_config_path":"private.json"}]',
+        '[{"source":"source_a","site":"official","unexpected":"private"}]',
+    ],
+)
+def test_invalid_private_probe_keeps_pause_without_requests(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    control_sessions: sessionmaker[Session],
+    manifest_text: str,
+) -> None:
+    """Malformed or ambiguous recovery targets never trigger outbound requests."""
+    configure_source(monkeypatch, tmp_path)
+    manifest = tmp_path / ".env.recovery.json"
+    manifest.write_text(manifest_text, encoding="utf-8")
+    monkeypatch.setenv("COLLECTOR_RECOVERY_CONFIG_PATH", str(manifest))
+    controls = SqlAlchemyControlRepository(control_sessions)
+    target = Target("source_a", "official")
+    now = datetime(2026, 10, 24, tzinfo=UTC)
+    controls.pause(target, resume_mode="automatic", interval=60, reason=None, now=now)
+    requests: list[str] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        requests.append(request.url.path)
+        return httpx.Response(503)
+
+    result = run_recovery_checks(
+        settings=load_settings(),
+        repository=controls,
+        now=lambda: now + timedelta(hours=1),
+        sleep=lambda _: None,
+        transport=httpx.MockTransport(respond),
+    )
+    assert requests == []
+    assert result.failed == 1
+    assert controls.get(target).paused is True

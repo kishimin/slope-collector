@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime as datetime_module
 from typing import TYPE_CHECKING, Annotated
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Path, Query, status
 from pydantic import BaseModel, ConfigDict
@@ -135,7 +136,7 @@ class EntityRecordsResponse(BaseModel):
 
 
 class DateRangeRecordsResponse(BaseModel):
-    """Every stored record within an inclusive publication-date range."""
+    """Every stored record within an inclusive Japanese publication-date range."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -345,11 +346,11 @@ def _create_date_range_router(sessions: sessionmaker[Session]) -> APIRouter:
                 },
             )
         start = datetime_module.datetime.combine(
-            from_date, datetime_module.time.min, tzinfo=datetime_module.UTC
-        )
+            from_date, datetime_module.time.min, tzinfo=ZoneInfo("Asia/Tokyo")
+        ).astimezone(datetime_module.UTC)
         end = datetime_module.datetime.combine(
-            to_date, datetime_module.time.max, tzinfo=datetime_module.UTC
-        )
+            to_date, datetime_module.time.max, tzinfo=ZoneInfo("Asia/Tokyo")
+        ).astimezone(datetime_module.UTC)
         statement = (
             select(Record)
             .where(Record.published_at >= start, Record.published_at <= end)

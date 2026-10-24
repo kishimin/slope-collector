@@ -87,3 +87,42 @@ def test_official_recovery_checks_one_article_without_persisting(
     )
     with control_sessions() as session:
         assert session.scalar(select(func.count()).select_from(Record)) == 0
+
+
+@pytest.mark.medium
+def test_recovery_worker_cannot_claim_an_inflight_short_interval_check(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    control_sessions: sessionmaker[Session],
+) -> None:
+    """A one-minute interval cannot overlap a check whose HTTP deadline is longer."""
+    configure_source(monkeypatch, tmp_path)
+    manifest = tmp_path / ".env.recovery.json"
+    manifest.write_text('[{"source":"source_a","site":"official"}]', encoding="utf-8")
+    monkeypatch.setenv("COLLECTOR_RECOVERY_CONFIG_PATH", str(manifest))
+    monkeypatch.setenv("COLLECTOR_RESPONSE_TIMEOUT_SECONDS", "90")
+    controls = SqlAlchemyControlRepository(control_sessions)
+    target = Target("source_a", "official")
+    now = datetime(2026, 10, 24, tzinfo=UTC)
+    controls.pause(target, resume_mode="automatic", interval=1, reason=None, now=now)
+    second_claims: list[int] = []
+
+    def respond(_request: httpx.Request) -> httpx.Response:
+        other = run_recovery_checks(
+            settings=load_settings(),
+            repository=controls,
+            now=lambda: now + timedelta(minutes=2),
+            sleep=lambda _: None,
+            transport=httpx.MockTransport(lambda _: httpx.Response(503)),
+        )
+        second_claims.append(other.checked)
+        return httpx.Response(503)
+
+    run_recovery_checks(
+        settings=load_settings(),
+        repository=controls,
+        now=lambda: now + timedelta(minutes=1),
+        sleep=lambda _: None,
+        transport=httpx.MockTransport(respond),
+    )
+    assert second_claims == [0]

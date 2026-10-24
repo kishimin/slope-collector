@@ -113,3 +113,61 @@ async def test_automatic_pause_requires_a_private_recovery_probe(
         assert response.status_code == status.HTTP_409_CONFLICT
         states = (await client.get("/collection-controls")).json()["controls"]
         assert all(not state["paused"] for state in states)
+
+
+@pytest.mark.anyio
+@pytest.mark.medium
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"resume_mode": "unknown"},
+        {"resume_mode": "manual", "check_interval_minutes": 0},
+        {"resume_mode": "manual", "check_interval_minutes": 1441},
+        {"resume_mode": "manual", "check_interval_minutes": True},
+        {"resume_mode": "manual", "check_interval_minutes": "60"},
+        {"resume_mode": "manual", "check_interval_minutes": 1.5},
+        {"resume_mode": "manual", "reason": "x" * 256},
+        {"resume_mode": "manual", "url": "https://unapproved.example"},
+    ],
+)
+async def test_invalid_pause_leaves_collection_running(
+    control_sessions: sessionmaker[Session], body: dict[str, object]
+) -> None:
+    """Invalid input cannot change durable state or supply outbound request targets."""
+    settings = Settings.model_validate({"database_url": "mysql+pymysql://db/collector"})
+    async with AsyncClient(
+        transport=ASGITransport(app=create_app(settings, sessions=control_sessions)),
+        base_url="http://test",
+    ) as client:
+        response = await client.post(
+            "/collection-controls/source_a/official/pause", json=body
+        )
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+        assert all(
+            not state["paused"]
+            for state in (await client.get("/collection-controls")).json()["controls"]
+        )
+
+
+@pytest.mark.anyio
+@pytest.mark.medium
+async def test_control_storage_failure_is_sanitized() -> None:
+    """A missing control table fails safely instead of exposing database details."""
+    from sqlalchemy import create_engine  # noqa: PLC0415 - local failing-storage fixture.
+    from sqlalchemy.orm import sessionmaker  # noqa: PLC0415
+
+    engine = create_engine("sqlite://")
+    settings = Settings.model_validate({"database_url": "mysql+pymysql://db/collector"})
+    async with AsyncClient(
+        transport=ASGITransport(
+            app=create_app(settings, sessions=sessionmaker(engine))
+        ),
+        base_url="http://test",
+    ) as client:
+        response = await client.get("/collection-controls")
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert response.json() == {
+            "code": "CONTROL_STORAGE_UNAVAILABLE",
+            "message": "Collection control storage is unavailable.",
+        }
+    engine.dispose()

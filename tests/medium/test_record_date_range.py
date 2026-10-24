@@ -31,7 +31,7 @@ def anyio_backend() -> str:
 
 @pytest.fixture
 def application() -> Iterator[FastAPI]:
-    """Supply more than one full page of records and exact date boundaries."""
+    """Supply UTC records at the exact boundaries of Japanese calendar dates."""
     engine = create_engine("sqlite://")
     Base.metadata.create_all(engine)
     sessions = sessionmaker(engine)
@@ -63,10 +63,10 @@ def application() -> Iterator[FastAPI]:
                 ),
             )
         for key, published_at in (
-            ("start", datetime(2026, 10, 1, tzinfo=UTC)),
-            ("end", datetime(2026, 10, 7, 23, 59, 59, 999999, tzinfo=UTC)),
-            ("before", datetime(2026, 9, 30, 23, 59, 59, 999999, tzinfo=UTC)),
-            ("after", datetime(2026, 10, 8, tzinfo=UTC)),
+            ("start", datetime(2026, 9, 30, 15, tzinfo=UTC)),
+            ("end", datetime(2026, 10, 7, 14, 59, 59, 999999, tzinfo=UTC)),
+            ("before", datetime(2026, 9, 30, 14, 59, 59, 999999, tzinfo=UTC)),
+            ("after", datetime(2026, 10, 7, 15, tzinfo=UTC)),
         ):
             session.add(
                 Record(
@@ -89,7 +89,7 @@ def application() -> Iterator[FastAPI]:
 async def test_date_range_returns_every_record_including_both_boundary_days(
     application: FastAPI,
 ) -> None:
-    """A complete range includes bodies and never stops at the 100-record limit."""
+    """JST days include their UTC boundaries without the 100-record limit."""
     async with AsyncClient(
         transport=ASGITransport(app=application), base_url="http://test"
     ) as client:
@@ -198,13 +198,13 @@ async def test_existing_record_list_still_paginates(application: FastAPI) -> Non
     assert len(first_page.json()["records"]) == first_page.json()["pagination"]["limit"]
     assert last_page.json()["pagination"] == {"limit": 100, "offset": 100, "total": 107}
     assert [record["id"] for record in last_page.json()["records"]] == [
+        7,
         6,
         5,
         4,
         3,
         2,
         1,
-        106,
     ]
     assert detail.status_code == status.HTTP_200_OK
     assert detail.json()["body"] == "<p>Body 105</p>"

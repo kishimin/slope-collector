@@ -340,10 +340,14 @@ general `/records` endpoint when bounded pages are required.
 ### Complete Date Range Query
 
 `GET /records/by-date?from=2026-10-01&to=2026-10-07` returns every stored
-record published within those UTC calendar dates, including both boundary days.
+record published within those Japanese calendar dates (`Asia/Tokyo`), including
+both boundary days. The example covers October 1 at 00:00 through October 7 at
+23:59:59.999999 in Japan (September 30 at 15:00 through October 7 at
+14:59:59.999999 UTC). Stored and returned timestamps remain UTC.
 Both dates are required in `YYYY-MM-DD` form. The optional positive `entity_id`
 filters the results to one entity, including its stored records if it is inactive.
 An unknown entity or an empty range returns `{"records": []}`.
+Date ranges whose start cannot be represented in UTC return `400`.
 
 The response is `{"records": [...]}` with the same record fields as `/records`,
 including `body`, ordered by publication time and then ID, both descending.

@@ -24,6 +24,23 @@ class Base(DeclarativeBase):
     """Declarative metadata shared by persisted collection records."""
 
 
+class CollectionControl(Base):
+    """Durable per-site maintenance decisions, shared across processes."""
+
+    __tablename__ = "collection_controls"
+
+    target: Mapped[str] = mapped_column(String(32), primary_key=True)
+    paused: Mapped[bool] = mapped_column(Boolean, default=False)
+    resume_mode: Mapped[str] = mapped_column(String(16), default="manual")
+    check_interval_minutes: Mapped[int] = mapped_column(Integer, default=60)
+    reason: Mapped[str | None] = mapped_column(String(255))
+    next_check_at: Mapped[datetime_module.datetime | None] = mapped_column(DateTime)
+    last_checked_at: Mapped[datetime_module.datetime | None] = mapped_column(DateTime)
+    last_check_succeeded: Mapped[bool | None] = mapped_column(Boolean)
+    last_check_error: Mapped[str | None] = mapped_column(String(255))
+    revision: Mapped[str] = mapped_column(String(36), default="")
+
+
 class Timestamped:
     """Database-managed audit timestamps common to persisted rows."""
 

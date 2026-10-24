@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
+from fastapi import status
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -56,7 +57,7 @@ async def test_manual_pause_survives_restart_and_resume_needs_no_probe(
             "/collection-controls/source_a/official/pause",
             json={"resume_mode": "manual", "reason": "Maintenance"},
         )
-    assert response.status_code == 200
+    assert response.status_code == status.HTTP_200_OK
     assert response.json()["paused"] is True
     assert response.json()["reason"] == "Maintenance"
     assert response.json()["next_check_at"] is None
@@ -70,6 +71,6 @@ async def test_manual_pause_survives_restart_and_resume_needs_no_probe(
         assert by_target["source_a", "official"]["paused"] is True
         assert by_target["source_a", "archive"]["paused"] is False
         response = await client.post("/collection-controls/source_a/official/resume")
-        assert response.status_code == 200
+        assert response.status_code == status.HTTP_200_OK
         assert response.json()["paused"] is False
         assert response.json()["next_check_at"] is None

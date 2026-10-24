@@ -19,7 +19,7 @@ from app.scraping.http_client import (
     FetchTemporaryError,
     HttpLimits,
 )
-from app.services.control import require_collection_allowed
+from app.services.collection_gate import require_collection_allowed
 
 if TYPE_CHECKING:
     from collections.abc import Callable

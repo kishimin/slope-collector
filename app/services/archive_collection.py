@@ -38,7 +38,7 @@ from app.services.collection import (
     _retry,
     wait_before_request,
 )
-from app.services.control import require_collection_allowed
+from app.services.collection_gate import require_collection_allowed
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -487,6 +487,99 @@ def _record_key(config: ArchiveConfig, key: str) -> str:
     return (
         f"{config.record_key_namespace}:{key}" if config.record_key_namespace else key
     )
+
+
+def probe_archive(  # noqa: PLR0913 - explicit bounded recovery boundary.
+    *,
+    settings: Settings,
+    source_key: SourceKey,
+    source_entity_key: str,
+    config: ArchiveConfig,
+    authorize_request: Callable[[Target], None],
+    sleep: Callable[[float], None],
+    transport: httpx.BaseTransport | None = None,
+) -> None:
+    """Parse one archive list and its first article without changing checkpoints."""
+    _key(source_entity_key)
+    if source_entity_key in config.excluded_source_entity_keys:
+        message = "recovery member is excluded by the archive contract"
+        raise ValueError(message)
+    source = load_source_config(settings, source_key)
+    _require_image_replacement_hosts(config, source)
+    original_source, adapter = create_archive_parser(source_key, source, config)
+    limits = HttpLimits(
+        settings.collector_connect_timeout_seconds,
+        settings.collector_response_timeout_seconds,
+        settings.collector_max_response_bytes,
+    )
+
+    def before_request() -> None:
+        authorize_request(Target(source_key, "archive"))
+
+    def before_original_request() -> None:
+        before_request()
+        if original_source.base_url.host == source.base_url.host:
+            authorize_request(Target(source_key, "official"))
+
+    def wait(path: str) -> None:
+        before_request()
+        wait_before_request(settings, path, sleep=sleep, random_value=lambda: 0)
+
+    with (
+        BoundedHttpClient(
+            base_url=str(config.base_url),
+            user_agent=settings.collector_user_agent,
+            limits=limits,
+            transport=transport,
+            before_request=before_request,
+        ) as client,
+        BoundedHttpClient(
+            base_url=str(original_source.base_url),
+            user_agent=settings.collector_user_agent,
+            limits=limits,
+            transport=transport,
+            before_request=before_original_request,
+        ) as original_client,
+    ):
+        path = config.list_path.format(entity_key=config.entity_key, page=0)
+        wait(path)
+        references, _pages = _parse_page(
+            _object(client.get_json(path)),
+            config.fields,
+            page=0,
+            previous_pages=None,
+            max_pages=settings.collector_max_pages,
+        )
+        item = references[0]
+        key = _key(item[config.fields.record_id])
+        _require_author(item[config.fields.author], config.entity_name)
+        original_url = _text(item[config.fields.original_url])
+        if config.detail_format == "html":
+            before_original_request()
+            wait(original_url)
+            _parse_original_html(
+                original_client.get_html(original_url),
+                source_key=source_key,
+                source=original_source,
+                config=config,
+                original_url=original_url,
+                record_id=key,
+                source_entity_key=source_entity_key,
+            )
+        else:
+            path = config.detail_path.format(record_id=key)
+            wait(path)
+            detail = _object(client.get_json(path))
+            _require_author(detail[config.fields.author], config.entity_name)
+            _parse_record(
+                detail,
+                config=config,
+                adapter=adapter,
+                entity_query=source.entity_id_query_param,
+                source_entity_key=source_entity_key,
+                original_url=original_url,
+                record_id=key,
+            )
 
 
 def _parse_original_html(  # noqa: PLR0913 - explicit identity and parsing boundaries.

@@ -68,7 +68,7 @@ async def test_manual_pause_survives_restart_and_resume_needs_no_probe(
 @pytest.mark.medium
 @pytest.mark.parametrize("succeeded", [False, True])
 def test_due_recovery_checks_preserve_newer_operator_decisions(
-    control_sessions: sessionmaker[Session], succeeded: bool
+    control_sessions: sessionmaker[Session], *, succeeded: bool
 ) -> None:
     """Only one worker claims a deadline and stale results cannot undo a pause."""
     repository = SqlAlchemyControlRepository(control_sessions)

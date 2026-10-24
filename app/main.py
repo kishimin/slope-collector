@@ -14,6 +14,7 @@ from app.config import Settings, load_settings
 from app.db.session import create_session_factory
 from app.models.control import ControlStorageError
 from app.repositories.control import SqlAlchemyControlRepository
+from app.scraping.recovery import RecoveryConfigError
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session, sessionmaker
@@ -36,8 +37,23 @@ def create_app(
     application.include_router(health_router)
     database_sessions = sessions or create_session_factory(settings)
     application.include_router(
-        create_control_router(SqlAlchemyControlRepository(database_sessions))
+        create_control_router(
+            SqlAlchemyControlRepository(database_sessions),
+            settings.collector_recovery_config_path.get_secret_value(),
+        )
     )
+
+    @application.exception_handler(RecoveryConfigError)
+    async def recovery_config_error_handler(
+        _request: Request, _exc: RecoveryConfigError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_409_CONFLICT,
+            content={
+                "code": "RECOVERY_PROBE_REQUIRED",
+                "message": "A valid private recovery probe is required for this site.",
+            },
+        )
 
     @application.exception_handler(ControlStorageError)
     async def control_storage_error_handler(

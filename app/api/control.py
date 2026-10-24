@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.config import SourceKey  # noqa: TC001 - FastAPI resolves route annotations.
 from app.models.control import TARGETS, ControlState, ResumeMode, SiteKind, Target
+from app.scraping.recovery import load_recovery_probe
 
 if TYPE_CHECKING:
     from app.models.control import ControlRepository
@@ -24,7 +25,9 @@ class PauseRequest(BaseModel):
     reason: str | None = Field(default=None, max_length=255)
 
 
-def create_control_router(repository: ControlRepository) -> APIRouter:
+def create_control_router(
+    repository: ControlRepository, recovery_config_path: str
+) -> APIRouter:
     """Expose maintenance controls in every environment on the internal API."""
     router = APIRouter(prefix="/collection-controls", tags=["collection-controls"])
 
@@ -36,6 +39,8 @@ def create_control_router(repository: ControlRepository) -> APIRouter:
     async def pause(
         source: SourceKey, site: SiteKind, body: PauseRequest
     ) -> ControlState:
+        if body.resume_mode == "automatic":
+            load_recovery_probe(recovery_config_path, Target(source, site))
         return repository.pause(
             Target(source, site),
             resume_mode=body.resume_mode,

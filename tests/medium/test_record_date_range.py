@@ -67,6 +67,10 @@ def application() -> Iterator[FastAPI]:
             ("end", datetime(2026, 10, 7, 14, 59, 59, 999999, tzinfo=UTC)),
             ("before", datetime(2026, 9, 30, 14, 59, 59, 999999, tzinfo=UTC)),
             ("after", datetime(2026, 10, 7, 15, tzinfo=UTC)),
+            ("new-year-start", datetime(2025, 12, 31, 15, tzinfo=UTC)),
+            ("new-year-end", datetime(2026, 1, 1, 14, 59, 59, 999999, tzinfo=UTC)),
+            ("before-new-year", datetime(2025, 12, 31, 14, 59, 59, 999999, tzinfo=UTC)),
+            ("after-new-year", datetime(2026, 1, 1, 15, tzinfo=UTC)),
         ):
             session.add(
                 Record(
@@ -121,6 +125,7 @@ async def test_date_range_returns_every_record_including_both_boundary_days(
         ({"from": "2026-02-30", "to": "2026-10-07"}, 422, "VALIDATION_ERROR"),
         ({"from": "2026-10-01", "to": "invalid"}, 422, "VALIDATION_ERROR"),
         ({"from": "2026-10-08", "to": "2026-10-01"}, 400, "BAD_REQUEST"),
+        ({"from": "0001-01-01", "to": "0001-01-01"}, 400, "BAD_REQUEST"),
         (
             {"from": "2026-10-01", "to": "2026-10-07", "entity_id": "0"},
             422,
@@ -155,6 +160,7 @@ async def test_date_range_rejects_missing_or_invalid_parameters(
         ({"from": "2026-10-07", "to": "2026-10-07"}, [107]),
         ({"from": "2026-10-02", "to": "2026-10-03"}, []),
         ({"from": "9999-12-31", "to": "9999-12-31"}, []),
+        ({"from": "2026-01-01", "to": "2026-01-01"}, [111, 110]),
         (
             {"from": "2026-10-01", "to": "2026-10-07", "entity_id": "999"},
             [],

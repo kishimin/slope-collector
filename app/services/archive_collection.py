@@ -215,7 +215,7 @@ def _require_author(value: JsonValue, expected: str) -> str:
     return author
 
 
-def collect_archive(  # noqa: C901, PLR0912, PLR0913, PLR0915 - explicit collection boundary.
+def collect_archive(  # noqa: PLR0913 - explicit collection boundary.
     *,
     settings: Settings,
     source_key: SourceKey,
@@ -241,6 +241,32 @@ def collect_archive(  # noqa: C901, PLR0912, PLR0913, PLR0915 - explicit collect
             failed_records=1,
             failures=(_failure("archive-identity", source_key, error),),
         )
+    original_source, adapter = create_archive_parser(source_key, source, config)
+    limits = HttpLimits(
+        connect_timeout_seconds=settings.collector_connect_timeout_seconds,
+        response_timeout_seconds=settings.collector_response_timeout_seconds,
+        max_response_bytes=settings.collector_max_response_bytes,
+    )
+    return _collect_archive_pages(
+        settings=settings,
+        source_key=source_key,
+        source_entity_key=source_entity_key,
+        config=config,
+        repository=repository,
+        source=source,
+        original_source=original_source,
+        adapter=adapter,
+        limits=limits,
+        transport=transport,
+        sleep=sleep,
+        controls=controls,
+    )
+
+
+def create_archive_parser(
+    source_key: SourceKey, source: SourceConfig, config: ArchiveConfig
+) -> tuple[SourceConfig, SourceAdapter]:
+    """Share the same validated HTML contract with collection and recovery checks."""
     # Synthetic metadata lets the existing source parser enforce the same bounds.
     selectors = SourceSelectors(
         list_item=".entry",
@@ -280,11 +306,24 @@ def collect_archive(  # noqa: C901, PLR0912, PLR0913, PLR0915 - explicit collect
             }
         ),
     )
-    limits = HttpLimits(
-        connect_timeout_seconds=settings.collector_connect_timeout_seconds,
-        response_timeout_seconds=settings.collector_response_timeout_seconds,
-        max_response_bytes=settings.collector_max_response_bytes,
-    )
+    return original_source, adapter
+
+
+def _collect_archive_pages(  # noqa: C901, PLR0913, PLR0915 - collection boundary.
+    *,
+    settings: Settings,
+    source_key: SourceKey,
+    source_entity_key: str,
+    config: ArchiveConfig,
+    repository: ArchiveRepository,
+    source: SourceConfig,
+    original_source: SourceConfig,
+    adapter: SourceAdapter,
+    limits: HttpLimits,
+    transport: httpx.BaseTransport | None,
+    sleep: Callable[[float], None],
+    controls: ControlRepository | None,
+) -> CollectionResult:
     saved = skipped = visited = 0
     failures = []
     seen: set[str] = set()

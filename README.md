@@ -318,6 +318,7 @@ the GUI server's internal connection; authentication belongs to that server.
 | `GET` | `/entities/{entity_id}` | Return one entity or `404`. |
 | `GET` | `/entities/{entity_id}/records` | Return all titles and bodies for one entity, or `404`. |
 | `GET` | `/records` | List records with entity, date, and pagination filters. |
+| `GET` | `/records/by-date` | Return every stored record within a required publication-date range. |
 | `GET` | `/records/{record_id}` | Return one record with body and assets, or `404`. |
 
 ### Record List Query Parameters
@@ -335,6 +336,24 @@ the GUI server's internal connection; authentication belongs to that server.
 `GET /entities/{entity_id}/records` returns all records for one entity with
 their `id`, `title`, and `body`. The response is not paginated; use the
 general `/records` endpoint when bounded pages are required.
+
+### Complete Date Range Query
+
+`GET /records/by-date?from=2026-10-01&to=2026-10-07` returns every stored
+record published within those Japanese calendar dates (`Asia/Tokyo`), including
+both boundary days. The example covers October 1 at 00:00 through October 7 at
+23:59:59.999999 in Japan (September 30 at 15:00 through October 7 at
+14:59:59.999999 UTC). Stored and returned timestamps remain UTC.
+Both dates are required in `YYYY-MM-DD` form. The optional positive `entity_id`
+filters the results to one entity, including its stored records if it is inactive.
+An unknown entity or an empty range returns `{"records": []}`.
+Date ranges whose start cannot be represented in UTC return `400`.
+
+The response is `{"records": [...]}` with the same record fields as `/records`,
+including `body`, ordered by publication time and then ID, both descending.
+There is no pagination or 100-record cap; broad ranges can produce large responses.
+Use `/records` when bounded pages are needed. This development-only API reads the
+local database and does not trigger collection or fetch missing articles.
 
 Responses use JSON and UTC ISO 8601 timestamps. Invalid parameters return `422` with `code=VALIDATION_ERROR`; invalid date ranges return `400`; missing resources return `404` with `code=NOT_FOUND`.
 

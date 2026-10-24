@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import datetime as datetime_module
 from typing import TYPE_CHECKING, Annotated
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Path, Query, status
 from pydantic import BaseModel, ConfigDict
@@ -134,6 +135,14 @@ class EntityRecordsResponse(BaseModel):
     records: list[EntityRecordResponse]
 
 
+class DateRangeRecordsResponse(BaseModel):
+    """Every stored record within an inclusive Japanese publication-date range."""
+
+    model_config = ConfigDict(frozen=True)
+
+    records: list[RecordListItem]
+
+
 def create_records_router(  # noqa: C901
     sessions: sessionmaker[Session],
 ) -> APIRouter:
@@ -236,6 +245,8 @@ def create_records_router(  # noqa: C901
             pagination=PaginationResponse(limit=limit, offset=offset, total=total),
         )
 
+    router.include_router(_create_date_range_router(sessions))
+
     @router.get("/records/{record_id}", response_model=RecordDetailResponse)
     async def get_record(record_id: Annotated[int, Path(ge=1)]) -> RecordDetailResponse:
         with sessions() as session:
@@ -314,3 +325,57 @@ def _not_found() -> HTTPException:
             "message": "Requested resource does not exist.",
         },
     )
+
+
+def _create_date_range_router(sessions: sessionmaker[Session]) -> APIRouter:
+    """Keep complete range retrieval separate from paginated browsing."""
+    router = APIRouter()
+
+    @router.get("/records/by-date", response_model=DateRangeRecordsResponse)
+    async def list_records_by_date(
+        from_date: Annotated[
+            datetime_module.date,
+            Query(alias="from", description="Inclusive start date in Asia/Tokyo."),
+        ],
+        to_date: Annotated[
+            datetime_module.date,
+            Query(alias="to", description="Inclusive end date in Asia/Tokyo."),
+        ],
+        entity_id: Annotated[int | None, Query(ge=1)] = None,
+    ) -> DateRangeRecordsResponse:
+        if from_date > to_date:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "code": "BAD_REQUEST",
+                    "message": "The start date must not be after the end date.",
+                },
+            )
+        if from_date == datetime_module.date.min:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "code": "BAD_REQUEST",
+                    "message": "The start date is outside the supported UTC range.",
+                },
+            )
+        start = datetime_module.datetime.combine(
+            from_date, datetime_module.time.min, tzinfo=ZoneInfo("Asia/Tokyo")
+        ).astimezone(datetime_module.UTC)
+        end = datetime_module.datetime.combine(
+            to_date, datetime_module.time.max, tzinfo=ZoneInfo("Asia/Tokyo")
+        ).astimezone(datetime_module.UTC)
+        statement = (
+            select(Record)
+            .where(Record.published_at >= start, Record.published_at <= end)
+            .order_by(Record.published_at.desc(), Record.id.desc())
+        )
+        if entity_id is not None:
+            statement = statement.where(Record.entity_id == entity_id)
+        with sessions() as session:
+            rows = session.scalars(statement).all()
+        return DateRangeRecordsResponse(
+            records=[_record_list_response(row) for row in rows]
+        )
+
+    return router

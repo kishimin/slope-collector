@@ -7,6 +7,28 @@ import pytest
 
 from app import collector
 from app.services.collection import CollectionMode, CollectionResult
+from app.services.control import RecoveryResult
+
+
+@pytest.mark.small
+def test_recovery_command_does_not_start_collection_or_notify(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Recovery is a separate command that only releases due automatic pauses."""
+    monkeypatch.setattr(
+        collector, "load_settings", lambda: SimpleNamespace(log_level="INFO")
+    )
+    monkeypatch.setattr(collector, "create_session_factory", lambda _: object())
+    monkeypatch.setattr(collector, "SqlAlchemyControlRepository", lambda _: object())
+    captured: list[object] = []
+
+    def recover(**_kwargs: object) -> RecoveryResult:
+        captured.append("recovery")
+        return RecoveryResult(checked=1, resumed=1)
+
+    monkeypatch.setattr(collector, "run_recovery_checks", recover, raising=False)
+    assert collector.main(["check-recovery"]) == 0
+    assert captured == ["recovery"]
 
 
 @pytest.mark.small

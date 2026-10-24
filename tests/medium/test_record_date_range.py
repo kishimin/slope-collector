@@ -47,6 +47,7 @@ def application() -> Iterator[FastAPI]:
                 name="Second author",
                 is_active=False,
             ),
+            Entity(source_id=source.id, external_key="empty", name="Empty author"),
         ]
         session.add_all(entities)
         session.flush()
@@ -90,94 +91,141 @@ def application() -> Iterator[FastAPI]:
     engine.dispose()
 
 
-async def test_date_range_returns_every_record_including_both_boundary_days(
+async def test_entity_records_return_every_matching_record_with_japanese_dates(
     application: FastAPI,
 ) -> None:
-    """JST days include their UTC boundaries without the 100-record limit."""
+    """Both JST boundaries are inclusive and no matching articles are truncated."""
     async with AsyncClient(
         transport=ASGITransport(app=application), base_url="http://test"
     ) as client:
         response = await client.get(
-            "/records/by-date", params={"from": "2026-10-01", "to": "2026-10-07"}
+            "/entities/1/records", params={"from": "2026-10-01", "to": "2026-10-07"}
         )
 
     assert response.status_code == status.HTTP_200_OK
     payload = response.json()
-    expected_ids = [107, *range(105, 0, -1), 106]
-    assert [record["id"] for record in payload["records"]] == expected_ids
+    assert [record["id"] for record in payload["records"]] == [
+        107,
+        *range(104, 0, -1),
+        106,
+    ]
     assert payload["records"][1] == {
-        "id": 105,
-        "entity_id": 2,
-        "title": "Article 105",
-        "body": "<p>Body 105</p>",
-        "source_url": "/articles/105",
-        "published_at": "2026-10-04T12:00:00Z",
+        "id": 104,
+        "title": "Article 104",
+        "body": "<p>Body 104</p>",
     }
     assert set(payload) == {"records"}
 
 
 @pytest.mark.parametrize(
-    ("parameters", "expected_status", "expected_code"),
+    ("parameters", "expected_ids"),
     [
-        ({}, 422, "VALIDATION_ERROR"),
-        ({"from": "2026-10-01"}, 422, "VALIDATION_ERROR"),
-        ({"to": "2026-10-07"}, 422, "VALIDATION_ERROR"),
-        ({"from": "2026-02-30", "to": "2026-10-07"}, 422, "VALIDATION_ERROR"),
-        ({"from": "2026-10-01", "to": "invalid"}, 422, "VALIDATION_ERROR"),
-        ({"from": "2026-10-08", "to": "2026-10-01"}, 400, "BAD_REQUEST"),
-        ({"from": "0001-01-01", "to": "0001-01-01"}, 400, "BAD_REQUEST"),
-        (
-            {"from": "2026-10-01", "to": "2026-10-07", "entity_id": "0"},
-            422,
-            "VALIDATION_ERROR",
-        ),
+        ({}, [109, 107, *range(104, 0, -1), 106, 108, 113, 111, 110, 112]),
+        ({"from": "2026-10-01"}, [109, 107, *range(104, 0, -1), 106]),
+        ({"to": "2026-10-07"}, [107, *range(104, 0, -1), 106, 108, 113, 111, 110, 112]),
+        ({"from": "2026-10-07"}, [109, 107]),
+        ({"to": "2026-10-01"}, [106, 108, 113, 111, 110, 112]),
+        ({"from": "2026-10-01", "to": "2026-10-01"}, [106]),
+        ({"from": "2026-10-07", "to": "2026-10-07"}, [107]),
+        ({"from": "2026-10-02", "to": "2026-10-03"}, []),
+        ({"from": "9999-12-31", "to": "9999-12-31"}, []),
+        ({"from": "9999-12-31"}, []),
+        ({"to": "0001-01-01"}, []),
+        ({"from": "2026-01-01", "to": "2026-01-01"}, [111, 110]),
     ],
 )
-async def test_date_range_rejects_missing_or_invalid_parameters(
+async def test_entity_record_dates_are_independently_optional(
+    application: FastAPI, parameters: dict[str, str], expected_ids: list[int]
+) -> None:
+    """Missing bounds leave that side open while supplied dates use Japanese days."""
+    async with AsyncClient(
+        transport=ASGITransport(app=application), base_url="http://test"
+    ) as client:
+        response = await client.get("/entities/1/records", params=parameters)
+
+    assert response.status_code == status.HTTP_200_OK
+    assert [record["id"] for record in response.json()["records"]] == expected_ids
+
+
+@pytest.mark.parametrize(
+    ("parameters", "expected_status", "expected_code"),
+    [
+        ({"from": "2026-02-30"}, 422, "VALIDATION_ERROR"),
+        ({"to": "invalid"}, 422, "VALIDATION_ERROR"),
+        ({"from": "2026-10-08", "to": "2026-10-01"}, 400, "BAD_REQUEST"),
+        ({"from": "0001-01-01"}, 400, "BAD_REQUEST"),
+    ],
+)
+async def test_entity_record_range_rejects_invalid_bounds(
     application: FastAPI,
     parameters: dict[str, str],
     expected_status: int,
     expected_code: str,
 ) -> None:
-    """Both dates must be valid and ordered, and entity IDs must be positive."""
+    """Malformed, reversed and unrepresentable bounds use common API errors."""
     async with AsyncClient(
         transport=ASGITransport(app=application), base_url="http://test"
     ) as client:
-        response = await client.get("/records/by-date", params=parameters)
+        response = await client.get("/entities/1/records", params=parameters)
 
     assert response.status_code == expected_status
     assert response.json()["code"] == expected_code
 
 
-@pytest.mark.parametrize(
-    ("parameters", "expected_ids"),
-    [
-        (
-            {"from": "2026-10-01", "to": "2026-10-07", "entity_id": "2"},
-            [105],
-        ),
-        ({"from": "2026-10-01", "to": "2026-10-01"}, [106]),
-        ({"from": "2026-10-07", "to": "2026-10-07"}, [107]),
-        ({"from": "2026-10-02", "to": "2026-10-03"}, []),
-        ({"from": "9999-12-31", "to": "9999-12-31"}, []),
-        ({"from": "2026-01-01", "to": "2026-01-01"}, [111, 110]),
-        (
-            {"from": "2026-10-01", "to": "2026-10-07", "entity_id": "999"},
-            [],
-        ),
-    ],
-)
-async def test_date_range_honors_entity_and_single_day_filters(
-    application: FastAPI, parameters: dict[str, str], expected_ids: list[int]
+@pytest.mark.parametrize("parameters", [{}, {"from": "2026-10-01", "to": "2026-10-07"}])
+async def test_entity_record_dates_preserve_author_scope(
+    application: FastAPI, parameters: dict[str, str]
 ) -> None:
-    """Only matching rows are returned, including inactive entities' stored rows."""
+    """Inactive authors' saved records remain readable and never include other authors."""
     async with AsyncClient(
         transport=ASGITransport(app=application), base_url="http://test"
     ) as client:
-        response = await client.get("/records/by-date", params=parameters)
+        response = await client.get("/entities/2/records", params=parameters)
 
     assert response.status_code == status.HTTP_200_OK
-    assert [record["id"] for record in response.json()["records"]] == expected_ids
+    assert response.json() == {
+        "records": [{"id": 105, "title": "Article 105", "body": "<p>Body 105</p>"}]
+    }
+
+
+async def test_unknown_and_empty_entities_keep_distinct_responses(
+    application: FastAPI,
+) -> None:
+    """An unknown entity is 404; an existing entity without articles is an empty list."""
+    async with AsyncClient(
+        transport=ASGITransport(app=application), base_url="http://test"
+    ) as client:
+        missing = await client.get(
+            "/entities/999/records", params={"from": "2026-10-01"}
+        )
+        empty = await client.get("/entities/3/records", params={"to": "2026-10-07"})
+        invalid = await client.get("/entities/0/records")
+
+    assert missing.status_code == status.HTTP_404_NOT_FOUND
+    assert missing.json()["code"] == "NOT_FOUND"
+    assert empty.status_code == status.HTTP_200_OK
+    assert empty.json() == {"records": []}
+    assert invalid.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+
+
+async def test_record_range_is_integrated_into_the_existing_route(
+    application: FastAPI,
+) -> None:
+    """The public schema exposes optional bounds on one existing complete-read route."""
+    async with AsyncClient(
+        transport=ASGITransport(app=application), base_url="http://test"
+    ) as client:
+        response = await client.get("/openapi.json")
+
+    schema = response.json()
+    assert "/records/by-date" not in schema["paths"]
+    parameters = schema["paths"]["/entities/{entity_id}/records"]["get"]["parameters"]
+    for name in ("from", "to"):
+        parameter = next(
+            parameter for parameter in parameters if parameter["name"] == name
+        )
+        assert parameter["required"] is False
+        assert "Asia/Tokyo" in parameter["description"]
 
 
 async def test_existing_record_list_still_paginates(application: FastAPI) -> None:
@@ -217,10 +265,10 @@ async def test_existing_record_list_still_paginates(application: FastAPI) -> Non
 
 
 @pytest.mark.parametrize("environment", ["production", "test"])
-async def test_date_range_is_not_available_outside_development(
+async def test_entity_record_dates_are_development_only(
     environment: Literal["production", "test"],
 ) -> None:
-    """Complete date-range reads share the existing development-only boundary."""
+    """Optional dates do not expand the read API's environment boundary."""
     settings = Settings(
         environment=environment,
         debug=False,
@@ -231,7 +279,7 @@ async def test_date_range_is_not_available_outside_development(
         transport=ASGITransport(app=application), base_url="http://test"
     ) as client:
         response = await client.get(
-            "/records/by-date", params={"from": "2026-10-01", "to": "2026-10-07"}
+            "/entities/1/records", params={"from": "2026-10-01", "to": "2026-10-07"}
         )
 
     assert response.status_code == status.HTTP_404_NOT_FOUND

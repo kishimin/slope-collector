@@ -1,7 +1,9 @@
 """HTTP contracts for complete publication-date range retrieval."""
 
-from collections.abc import Iterator
+from __future__ import annotations
+
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 import pytest
 from fastapi import FastAPI, status
@@ -13,6 +15,9 @@ from sqlalchemy.orm import sessionmaker
 from app.config import Settings
 from app.main import create_app
 from app.models.collection import Base, Entity, Record, Source
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 pytestmark = [pytest.mark.anyio, pytest.mark.medium]
 

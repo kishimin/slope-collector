@@ -7,10 +7,14 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app.api.control import create_control_router
 from app.api.health import router as health_router
 from app.api.records import create_records_router
 from app.config import Settings, load_settings
 from app.db.session import create_session_factory
+from app.models.control import ControlStorageError
+from app.repositories.control import SqlAlchemyControlRepository
+from app.scraping.recovery import RecoveryConfigError
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session, sessionmaker
@@ -31,6 +35,37 @@ def create_app(
         openapi_url="/openapi.json" if publish_api_docs else None,
     )
     application.include_router(health_router)
+    database_sessions = sessions or create_session_factory(settings)
+    application.include_router(
+        create_control_router(
+            SqlAlchemyControlRepository(database_sessions),
+            settings.collector_recovery_config_path.get_secret_value(),
+        )
+    )
+
+    @application.exception_handler(RecoveryConfigError)
+    async def recovery_config_error_handler(
+        _request: Request, _exc: RecoveryConfigError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=status.HTTP_409_CONFLICT,
+            content={
+                "code": "RECOVERY_PROBE_REQUIRED",
+                "message": "A valid private recovery probe is required for this site.",
+            },
+        )
+
+    @application.exception_handler(ControlStorageError)
+    async def control_storage_error_handler(
+        _request: Request, _exc: ControlStorageError
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "code": "CONTROL_STORAGE_UNAVAILABLE",
+                "message": "Collection control storage is unavailable.",
+            },
+        )
 
     @application.exception_handler(RequestValidationError)
     async def validation_error_handler(
@@ -77,9 +112,7 @@ def create_app(
         )
 
     if settings.environment == "development":
-        application.include_router(
-            create_records_router(sessions or create_session_factory(settings))
-        )
+        application.include_router(create_records_router(database_sessions))
     return application
 
 

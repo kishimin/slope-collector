@@ -1,0 +1,12 @@
+[Unit]
+Description=Check due Slope Collector maintenance pauses every minute
+
+[Timer]
+OnCalendar=*-*-* *:*:00
+Persistent=false
+AccuracySec=1s
+RandomizedDelaySec=0
+Unit=slope-collector-recovery.service
+
+[Install]
+WantedBy=timers.target

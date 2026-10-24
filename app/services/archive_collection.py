@@ -24,6 +24,7 @@ from pydantic import (
 )
 
 from app.config import SourceConfig, SourceSelectors, load_source_config
+from app.models.control import CollectionPausedError, Target
 from app.scraping.adapter import ParseContractError, SourceAdapter
 from app.scraping.http_client import (
     BoundedHttpClient,
@@ -37,6 +38,7 @@ from app.services.collection import (
     _retry,
     wait_before_request,
 )
+from app.services.collection_gate import require_collection_allowed
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -44,6 +46,7 @@ if TYPE_CHECKING:
     import httpx
 
     from app.config import Settings, SourceKey
+    from app.models.control import ControlRepository
     from app.scraping.domain import CollectedRecord
 
 MAX_IMAGE_REPLACEMENT_URL_LENGTH = 2048
@@ -212,7 +215,7 @@ def _require_author(value: JsonValue, expected: str) -> str:
     return author
 
 
-def collect_archive(  # noqa: C901, PLR0913, PLR0915 - explicit collection boundary.
+def collect_archive(  # noqa: PLR0913 - explicit collection boundary.
     *,
     settings: Settings,
     source_key: SourceKey,
@@ -221,8 +224,16 @@ def collect_archive(  # noqa: C901, PLR0913, PLR0915 - explicit collection bound
     repository: ArchiveRepository,
     transport: httpx.BaseTransport | None = None,
     sleep: Callable[[float], None],
+    controls: ControlRepository | None = None,
 ) -> CollectionResult:
     """Supplement every archive page while preserving original checkpoints."""
+    paused_sites: set[str] = set()
+    try:
+        require_collection_allowed(
+            controls, Target(source_key, "archive"), paused_sites
+        )
+    except CollectionPausedError:
+        return CollectionResult(paused_sites=tuple(sorted(paused_sites)))
     if source_entity_key in config.excluded_source_entity_keys:
         return CollectionResult()
     _key(source_entity_key)
@@ -237,6 +248,32 @@ def collect_archive(  # noqa: C901, PLR0913, PLR0915 - explicit collection bound
             failed_records=1,
             failures=(_failure("archive-identity", source_key, error),),
         )
+    original_source, adapter = create_archive_parser(source_key, source, config)
+    limits = HttpLimits(
+        connect_timeout_seconds=settings.collector_connect_timeout_seconds,
+        response_timeout_seconds=settings.collector_response_timeout_seconds,
+        max_response_bytes=settings.collector_max_response_bytes,
+    )
+    return _collect_archive_pages(
+        settings=settings,
+        source_key=source_key,
+        source_entity_key=source_entity_key,
+        config=config,
+        repository=repository,
+        source=source,
+        original_source=original_source,
+        adapter=adapter,
+        limits=limits,
+        transport=transport,
+        sleep=sleep,
+        controls=controls,
+    )
+
+
+def create_archive_parser(
+    source_key: SourceKey, source: SourceConfig, config: ArchiveConfig
+) -> tuple[SourceConfig, SourceAdapter]:
+    """Share the same validated HTML contract with collection and recovery checks."""
     # Synthetic metadata lets the existing source parser enforce the same bounds.
     selectors = SourceSelectors(
         list_item=".entry",
@@ -276,15 +313,42 @@ def collect_archive(  # noqa: C901, PLR0913, PLR0915 - explicit collection bound
             }
         ),
     )
-    limits = HttpLimits(
-        connect_timeout_seconds=settings.collector_connect_timeout_seconds,
-        response_timeout_seconds=settings.collector_response_timeout_seconds,
-        max_response_bytes=settings.collector_max_response_bytes,
-    )
+    return original_source, adapter
+
+
+def _collect_archive_pages(  # noqa: C901, PLR0913, PLR0915 - collection boundary.
+    *,
+    settings: Settings,
+    source_key: SourceKey,
+    source_entity_key: str,
+    config: ArchiveConfig,
+    repository: ArchiveRepository,
+    source: SourceConfig,
+    original_source: SourceConfig,
+    adapter: SourceAdapter,
+    limits: HttpLimits,
+    transport: httpx.BaseTransport | None,
+    sleep: Callable[[float], None],
+    controls: ControlRepository | None,
+) -> CollectionResult:
     saved = skipped = visited = 0
     failures = []
     seen: set[str] = set()
     seen_pages: set[tuple[str, ...]] = set()
+    paused_sites: set[str] = set()
+
+    def before_request() -> None:
+        require_collection_allowed(
+            controls, Target(source_key, "archive"), paused_sites
+        )
+
+    def before_original_request() -> None:
+        before_request()
+        if original_source.base_url.host == source.base_url.host:
+            require_collection_allowed(
+                controls, Target(source_key, "official"), paused_sites
+            )
+
     pages: int | None = None
     with (
         BoundedHttpClient(
@@ -292,17 +356,20 @@ def collect_archive(  # noqa: C901, PLR0913, PLR0915 - explicit collection bound
             user_agent=settings.collector_user_agent,
             limits=limits,
             transport=transport,
+            before_request=before_request,
         ) as client,
         BoundedHttpClient(
             base_url=str(original_source.base_url),
             user_agent=settings.collector_user_agent,
             limits=limits,
             transport=transport,
+            before_request=before_original_request,
         ) as original_client,
     ):
 
         def fetch(path: str) -> JsonValue:
             def request() -> JsonValue:
+                before_request()
                 wait_before_request(
                     settings,
                     path,
@@ -337,6 +404,8 @@ def collect_archive(  # noqa: C901, PLR0913, PLR0915 - explicit collection bound
                     tuple(_record_key(config, key) for key in keys),
                 )
                 visited += 1
+            except CollectionPausedError:
+                break
             except (
                 FetchPermanentError,
                 FetchTemporaryError,
@@ -357,6 +426,7 @@ def collect_archive(  # noqa: C901, PLR0913, PLR0915 - explicit collection bound
                     if config.detail_format == "html":
 
                         def request_html(path: str = original_url) -> str:
+                            before_original_request()
                             wait_before_request(
                                 settings,
                                 path,
@@ -396,6 +466,8 @@ def collect_archive(  # noqa: C901, PLR0913, PLR0915 - explicit collection bound
                         saved += 1
                     else:
                         skipped += 1
+                except CollectionPausedError:
+                    break
                 except (
                     FetchPermanentError,
                     FetchTemporaryError,
@@ -404,6 +476,8 @@ def collect_archive(  # noqa: C901, PLR0913, PLR0915 - explicit collection bound
                     ValueError,
                 ) as error:
                     failures.append(_failure("archive-record", source_key, error))
+            if paused_sites:
+                break
             page += 1
     return CollectionResult(
         saved_records=saved,
@@ -411,6 +485,7 @@ def collect_archive(  # noqa: C901, PLR0913, PLR0915 - explicit collection bound
         failed_records=len(failures),
         visited_pages=visited,
         failures=tuple(failures),
+        paused_sites=tuple(sorted(paused_sites)),
     )
 
 
@@ -419,6 +494,102 @@ def _record_key(config: ArchiveConfig, key: str) -> str:
     return (
         f"{config.record_key_namespace}:{key}" if config.record_key_namespace else key
     )
+
+
+def probe_archive(  # noqa: PLR0913 - explicit bounded recovery boundary.
+    *,
+    settings: Settings,
+    source_key: SourceKey,
+    source_entity_key: str,
+    config: ArchiveConfig,
+    authorize_request: Callable[[Target], None],
+    sleep: Callable[[float], None],
+    transport: httpx.BaseTransport | None = None,
+) -> None:
+    """Parse one archive list and its first article without changing checkpoints."""
+    _key(source_entity_key)
+    if source_entity_key in config.excluded_source_entity_keys:
+        message = "recovery member is excluded by the archive contract"
+        raise ValueError(message)
+    source = load_source_config(settings, source_key)
+    _require_image_replacement_hosts(config, source)
+    original_source, adapter = create_archive_parser(source_key, source, config)
+    limits = HttpLimits(
+        settings.collector_connect_timeout_seconds,
+        settings.collector_response_timeout_seconds,
+        settings.collector_max_response_bytes,
+    )
+
+    def before_request() -> None:
+        authorize_request(Target(source_key, "archive"))
+
+    def before_original_request() -> None:
+        before_request()
+        if original_source.base_url.host == source.base_url.host:
+            authorize_request(Target(source_key, "official"))
+
+    def wait(path: str) -> None:
+        before_request()
+        wait_before_request(settings, path, sleep=sleep, random_value=lambda: 0)
+
+    with (
+        BoundedHttpClient(
+            base_url=str(config.base_url),
+            user_agent=settings.collector_user_agent,
+            limits=limits,
+            transport=transport,
+            before_request=before_request,
+        ) as client,
+        BoundedHttpClient(
+            base_url=str(original_source.base_url),
+            user_agent=settings.collector_user_agent,
+            limits=limits,
+            transport=transport,
+            before_request=before_original_request,
+        ) as original_client,
+    ):
+        path = config.list_path.format(entity_key=config.entity_key, page=0)
+        wait(path)
+        references, _pages = _parse_page(
+            _object(client.get_json(path)),
+            config.fields,
+            page=0,
+            previous_pages=None,
+            max_pages=settings.collector_max_pages,
+        )
+        if not references:
+            message = "archive recovery list contains no articles"
+            raise ParseContractError(message)
+        item = references[0]
+        key = _key(item[config.fields.record_id])
+        _require_author(item[config.fields.author], config.entity_name)
+        original_url = _text(item[config.fields.original_url])
+        if config.detail_format == "html":
+            before_original_request()
+            wait(original_url)
+            _parse_original_html(
+                original_client.get_html(original_url),
+                source_key=source_key,
+                source=original_source,
+                config=config,
+                original_url=original_url,
+                record_id=key,
+                source_entity_key=source_entity_key,
+            )
+        else:
+            path = config.detail_path.format(record_id=key)
+            wait(path)
+            detail = _object(client.get_json(path))
+            _require_author(detail[config.fields.author], config.entity_name)
+            _parse_record(
+                detail,
+                config=config,
+                adapter=adapter,
+                entity_query=source.entity_id_query_param,
+                source_entity_key=source_entity_key,
+                original_url=original_url,
+                record_id=key,
+            )
 
 
 def _parse_original_html(  # noqa: PLR0913 - explicit identity and parsing boundaries.

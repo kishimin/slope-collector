@@ -1,0 +1,220 @@
+"""Maintenance controls survive application restarts and isolate source sites."""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING
+
+import pytest
+from fastapi import status
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+from app.config import Settings
+from app.main import create_app
+from app.models.control import Target
+from app.repositories.control import SqlAlchemyControlRepository
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from sqlalchemy.orm import Session
+
+
+@pytest.fixture
+def anyio_backend() -> str:
+    """Exercise the API on asyncio."""
+    return "asyncio"
+
+
+@pytest.mark.anyio
+@pytest.mark.medium
+@pytest.mark.parametrize("environment", ["development", "production"])
+async def test_manual_pause_survives_restart_and_resume_needs_no_probe(
+    control_sessions: sessionmaker[Session], environment: str
+) -> None:
+    """An operator controls one site without affecting its archive counterpart."""
+    settings = Settings.model_validate(
+        {
+            "environment": environment,
+            "debug": False,
+            "database_url": "mysql+pymysql://db/collector",
+        }
+    )
+    application = create_app(settings, sessions=control_sessions)
+    async with AsyncClient(
+        transport=ASGITransport(app=application), base_url="http://test"
+    ) as client:
+        response = await client.post(
+            "/collection-controls/source_a/official/pause",
+            json={"resume_mode": "manual", "reason": "Maintenance"},
+        )
+    assert response.status_code == status.HTTP_200_OK
+    assert response.json()["paused"] is True
+    assert response.json()["reason"] == "Maintenance"
+    assert response.json()["next_check_at"] is None
+
+    restarted = create_app(settings, sessions=control_sessions)
+    async with AsyncClient(
+        transport=ASGITransport(app=restarted), base_url="http://test"
+    ) as client:
+        states = (await client.get("/collection-controls")).json()["controls"]
+        by_target = {(state["source"], state["site"]): state for state in states}
+        assert by_target["source_a", "official"]["paused"] is True
+        assert by_target["source_a", "archive"]["paused"] is False
+        response = await client.post("/collection-controls/source_a/official/resume")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["paused"] is False
+        assert response.json()["next_check_at"] is None
+
+
+@pytest.mark.medium
+@pytest.mark.parametrize("succeeded", [False, True])
+def test_due_recovery_checks_preserve_newer_operator_decisions(
+    control_sessions: sessionmaker[Session], *, succeeded: bool
+) -> None:
+    """Only one worker claims a deadline and stale results cannot undo a pause."""
+    repository = SqlAlchemyControlRepository(control_sessions)
+    target = Target("source_a", "archive")
+    now = datetime(2026, 10, 24, tzinfo=UTC)
+    state = repository.pause(
+        target, resume_mode="automatic", interval=60, reason=None, now=now
+    )
+    assert state.next_check_at == now + timedelta(hours=1)
+    assert repository.claim_check(target, now) is None
+    claimed = repository.claim_check(target, now + timedelta(hours=1))
+    assert claimed is not None
+    assert repository.claim_check(target, now + timedelta(hours=1)) is None
+    repository.pause(target, resume_mode="manual", interval=60, reason=None, now=now)
+    assert not repository.finish_check(
+        target, claimed.revision, succeeded=succeeded, now=now
+    )
+    assert repository.get(target).paused is True
+    assert repository.get(target).resume_mode == "manual"
+
+
+@pytest.mark.anyio
+@pytest.mark.medium
+async def test_automatic_pause_requires_a_private_recovery_probe(
+    control_sessions: sessionmaker[Session],
+) -> None:
+    """An operator cannot select automatic recovery without a usable check target."""
+    settings = Settings.model_validate(
+        {
+            "database_url": "mysql+pymysql://db/collector",
+            "collector_recovery_config_path": "",
+        }
+    )
+    application = create_app(settings, sessions=control_sessions)
+    async with AsyncClient(
+        transport=ASGITransport(app=application), base_url="http://test"
+    ) as client:
+        response = await client.post(
+            "/collection-controls/source_a/official/pause",
+            json={"resume_mode": "automatic"},
+        )
+        assert response.status_code == status.HTTP_409_CONFLICT
+        states = (await client.get("/collection-controls")).json()["controls"]
+        assert all(not state["paused"] for state in states)
+
+
+@pytest.mark.anyio
+@pytest.mark.medium
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"resume_mode": "unknown"},
+        {"resume_mode": "manual", "check_interval_minutes": 0},
+        {"resume_mode": "manual", "check_interval_minutes": 1441},
+        {"resume_mode": "manual", "check_interval_minutes": True},
+        {"resume_mode": "manual", "check_interval_minutes": "60"},
+        {"resume_mode": "manual", "check_interval_minutes": 1.5},
+        {"resume_mode": "manual", "reason": "x" * 256},
+        {"resume_mode": "manual", "url": "https://unapproved.example"},
+    ],
+)
+async def test_invalid_pause_leaves_collection_running(
+    control_sessions: sessionmaker[Session], body: dict[str, object]
+) -> None:
+    """Invalid input cannot change durable state or supply outbound request targets."""
+    settings = Settings.model_validate({"database_url": "mysql+pymysql://db/collector"})
+    async with AsyncClient(
+        transport=ASGITransport(app=create_app(settings, sessions=control_sessions)),
+        base_url="http://test",
+    ) as client:
+        response = await client.post(
+            "/collection-controls/source_a/official/pause", json=body
+        )
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+        assert all(
+            not state["paused"]
+            for state in (await client.get("/collection-controls")).json()["controls"]
+        )
+
+
+@pytest.mark.anyio
+@pytest.mark.medium
+async def test_control_storage_failure_is_sanitized() -> None:
+    """A missing control table fails safely instead of exposing database details."""
+    engine = create_engine("sqlite://")
+    settings = Settings.model_validate({"database_url": "mysql+pymysql://db/collector"})
+    async with AsyncClient(
+        transport=ASGITransport(
+            app=create_app(settings, sessions=sessionmaker(engine))
+        ),
+        base_url="http://test",
+    ) as client:
+        response = await client.get("/collection-controls")
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        assert response.json() == {
+            "code": "CONTROL_STORAGE_UNAVAILABLE",
+            "message": "Collection control storage is unavailable.",
+        }
+    engine.dispose()
+
+
+@pytest.mark.anyio
+@pytest.mark.medium
+@pytest.mark.parametrize("interval", [None, 1, 1440])
+async def test_automatic_pause_persists_default_and_boundary_intervals(
+    control_sessions: sessionmaker[Session], tmp_path: Path, interval: int | None
+) -> None:
+    """A configured automatic pause survives restart with a UTC check deadline."""
+    manifest = tmp_path / ".env.recovery.json"
+    manifest.write_text('[{"source":"source_a","site":"official"}]', encoding="utf-8")
+    settings = Settings.model_validate(
+        {
+            "database_url": "mysql+pymysql://db/collector",
+            "collector_recovery_config_path": str(manifest),
+        }
+    )
+    body: dict[str, object] = {"resume_mode": "automatic"}
+    if interval is not None:
+        body["check_interval_minutes"] = interval
+    async with AsyncClient(
+        transport=ASGITransport(app=create_app(settings, sessions=control_sessions)),
+        base_url="http://test",
+    ) as client:
+        response = await client.post(
+            "/collection-controls/source_a/official/pause", json=body
+        )
+        assert response.status_code == status.HTTP_200_OK
+        saved = response.json()
+        assert saved["paused"] is True
+        assert saved["check_interval_minutes"] == (interval or 60)
+        assert saved["next_check_at"].endswith("Z")
+        assert saved["reason"] is None
+    async with AsyncClient(
+        transport=ASGITransport(app=create_app(settings, sessions=control_sessions)),
+        base_url="http://test",
+    ) as client:
+        states = (await client.get("/collection-controls")).json()["controls"]
+        assert (
+            next(
+                state
+                for state in states
+                if state["source"] == "source_a" and state["site"] == "official"
+            )
+            == saved
+        )

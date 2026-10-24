@@ -38,7 +38,7 @@ slope-collector provides these concepts:
 - **Backfill**: A manual collection mode that follows historical pages.
 - **Daily collection**: An incremental mode that stops at an existing persistence checkpoint.
 
-The repository separates collection from the read-only development API. FastAPI exposes locally stored records, while the collector uses HTTP bounds, pacing, retries, and persistence checkpoints. Source URLs, selectors, credentials, and collected data stay outside committed files; the committed environment examples contain placeholders only.
+The repository separates collection from the read-only development API. FastAPI exposes locally stored records and internal maintenance controls, while the collector uses HTTP bounds, pacing, retries, and persistence checkpoints. Source URLs, selectors, credentials, and collected data stay outside committed files; the committed environment examples contain placeholders only.
 
 The development API is bound to localhost by the Compose configuration. Production deployment details are represented by systemd unit files, but runtime timer execution and journald inspection require a Linux deployment environment.
 
@@ -90,7 +90,7 @@ See `pyproject.toml`, `uv.lock`, and the `*.env.example` files for dependency an
 
 | Directory | Description |
 | --------- | ----------- |
-| `app/api` | FastAPI health and development read-only endpoints. |
+| `app/api` | FastAPI health, internal maintenance, and development record endpoints. |
 | `app/scraping` | HTTP bounds, source adapters, parsing, and preview support. |
 | `app/services` | Collection workflows, retry handling, and notifications. |
 | `app/repositories` | Persistence checkpoint implementation. |
@@ -301,11 +301,17 @@ successfully saved checkpoints.
 
 ## API Endpoints
 
-Development record routes are enabled only when `ENVIRONMENT=development`. Production exposes the health route but does not publish the development record browser.
+Development record routes are enabled only when `ENVIRONMENT=development`.
+Health and internal maintenance routes are available in development and production.
+Production does not publish the development record browser. Keep the API behind
+the GUI server's internal connection; authentication belongs to that server.
 
 | Method | Path | Description |
 | ------ | ---- | ----------- |
 | `GET` | `/health` | Return service availability. |
+| `GET` | `/collection-controls` | Read maintenance states (development and production). |
+| `POST` | `/collection-controls/{source}/{site}/pause` | Pause one source's official or archive route. |
+| `POST` | `/collection-controls/{source}/{site}/resume` | Resume without a recovery request. |
 | `GET` | `/sources` | List configured source names. |
 | `GET` | `/entities` | List entities; optionally filter with `source_id`. |
 | `GET` | `/entities/all` | List all entity fields, including source keys and timestamps. |
@@ -336,6 +342,9 @@ Responses use JSON and UTC ISO 8601 timestamps. Invalid parameters return `422` 
 
 ## Available Commands
 
+See [Maintenance controls](docs/operations/maintenance-controls.md) for the internal
+management API, private recovery configuration, and deployment schedule.
+
 | Command | Description |
 | ------- | ----------- |
 | `uv sync --all-groups` | Install the locked development environment. |
@@ -343,6 +352,7 @@ Responses use JSON and UTC ISO 8601 timestamps. Invalid parameters return `422` 
 | `uv run alembic upgrade head` | Apply database migrations. |
 | `uv run python -m app.collector collect-backfill` | Run manual historical collection. |
 | `uv run python -m app.collector collect-daily` | Run incremental collection. |
+| `uv run python -m app.collector check-recovery` | Check due automatic maintenance pauses. |
 | `uv run pytest -m small` | Run small tests. |
 | `uv run pytest -m "small or medium"` | Run small and medium tests. |
 | `uv run pytest acceptance tests --cov=app --cov-report=term-missing -q` | Run the full local test and coverage command. |

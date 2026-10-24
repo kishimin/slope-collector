@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Protocol
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from app.config import load_source_config
+from app.models.control import CollectionPausedError, Target
 from app.scraping.adapter import ParseContractError, SourceAdapter
 from app.scraping.http_client import (
     BoundedHttpClient,
@@ -18,6 +19,7 @@ from app.scraping.http_client import (
     FetchTemporaryError,
     HttpLimits,
 )
+from app.services.collection_gate import require_collection_allowed
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -25,6 +27,7 @@ if TYPE_CHECKING:
     import httpx
 
     from app.config import Settings, SourceKey
+    from app.models.control import ControlRepository
     from app.scraping.domain import CollectedRecord, ListPage
 
 MAX_ATTEMPTS = 3
@@ -65,6 +68,7 @@ class CollectionResult:
     failed_records: int = 0
     visited_pages: int = 0
     failures: tuple[CollectionFailure, ...] = ()
+    paused_sites: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,6 +92,7 @@ def collect_all(  # noqa: C901, PLR0912, PLR0913, PLR0915 - explicit workflow bo
     transport: httpx.BaseTransport | None = None,
     sleep: Callable[[float], None] | None = None,
     random_value: Callable[[], float] = random.random,
+    controls: ControlRepository | None = None,
 ) -> CollectionResult:
     """Collect all configured source pages, using persistence as the checkpoint."""
     saved_records = 0
@@ -95,8 +100,18 @@ def collect_all(  # noqa: C901, PLR0912, PLR0913, PLR0915 - explicit workflow bo
     failed_records = 0
     visited_pages = 0
     failures: list[CollectionFailure] = []
+    paused_sites: set[str] = set()
 
     for source_key in source_keys:
+        target = Target(source_key, "official")
+
+        def before_request(target: Target = target) -> None:
+            require_collection_allowed(controls, target, paused_sites)
+
+        try:
+            before_request()
+        except CollectionPausedError:
+            continue
         LOGGER.info("collection source started source=%s mode=%s", source_key, mode)
         config = load_source_config(settings, source_key)
         if source_entity_key is not None and not repository.is_entity_active(
@@ -127,9 +142,11 @@ def collect_all(  # noqa: C901, PLR0912, PLR0913, PLR0915 - explicit workflow bo
             user_agent=settings.collector_user_agent,
             limits=limits,
             transport=transport,
+            before_request=before_request,
         ) as client:
 
             def get_html(path: str) -> str:
+                before_request()
                 wait_before_request(
                     settings,
                     path,
@@ -160,6 +177,8 @@ def collect_all(  # noqa: C901, PLR0912, PLR0913, PLR0915 - explicit workflow bo
                         settings=settings,
                         sleep=sleep,
                     )
+                except CollectionPausedError:
+                    break
                 except ParseContractError as error:
                     if numbered_pages and page_number > 0:
                         break
@@ -214,6 +233,9 @@ def collect_all(  # noqa: C901, PLR0912, PLR0913, PLR0915 - explicit workflow bo
                             skipped_records += 1
                             continue
                         created = repository.persist(record)
+                    except CollectionPausedError:
+                        stop_at_checkpoint = True
+                        break
                     except (
                         FetchPermanentError,
                         FetchTemporaryError,
@@ -288,6 +310,8 @@ def collect_all(  # noqa: C901, PLR0912, PLR0913, PLR0915 - explicit workflow bo
                                 settings=settings,
                                 sleep=sleep,
                             )
+                        except CollectionPausedError:
+                            break
                         except ParseContractError as error:
                             if not archive_page_is_probe:
                                 failed_records += 1
@@ -340,6 +364,9 @@ def collect_all(  # noqa: C901, PLR0912, PLR0913, PLR0915 - explicit workflow bo
                                     skipped_records += 1
                                     continue
                                 created = repository.persist(record)
+                            except CollectionPausedError:
+                                stop_at_checkpoint = True
+                                break
                             except (
                                 FetchPermanentError,
                                 FetchTemporaryError,
@@ -370,6 +397,7 @@ def collect_all(  # noqa: C901, PLR0912, PLR0913, PLR0915 - explicit workflow bo
         failed_records=failed_records,
         visited_pages=visited_pages,
         failures=tuple(failures),
+        paused_sites=tuple(sorted(paused_sites)),
     )
     LOGGER.info(
         "collection completed saved=%d skipped=%d failed=%d pages=%d",

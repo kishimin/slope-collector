@@ -1,6 +1,9 @@
 # API Design
 
-Read-only API specification for slope-collector.
+Read API specification for slope-collector. Internal collection management
+endpoints are documented in [Maintenance controls](../operations/maintenance-controls.md)
+and are available in development and production. Record browsing remains
+development-only.
 
 ## Endpoints
 

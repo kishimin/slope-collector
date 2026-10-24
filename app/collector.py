@@ -10,7 +10,9 @@ from typing import TYPE_CHECKING
 
 from app.config import load_settings
 from app.db.session import create_session_factory
+from app.recovery import run_recovery_checks
 from app.repositories.collection import SqlAlchemyCollectionRepository
+from app.repositories.control import SqlAlchemyControlRepository
 from app.services.archive_collection import collect_archive, load_archive_config
 from app.services.collection import CollectionMode, collect_all
 from app.services.notifications import notify_failures
@@ -29,7 +31,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Collect configured source records")
     parser.add_argument(
         "command",
-        choices=("collect-backfill", "collect-daily"),
+        choices=("collect-backfill", "collect-daily", "check-recovery"),
     )
     parser.add_argument(
         "--source-entity-key",
@@ -45,6 +47,10 @@ def main(arguments: Sequence[str] | None = None) -> int:
         help="Private JSON archive contract for a targeted manual backfill.",
     )
     parsed = parser.parse_args(arguments)
+    if parsed.command == "check-recovery" and any(
+        (parsed.source, parsed.source_entity_key, parsed.archive_config)
+    ):
+        parser.error("check-recovery does not accept collection target options")
     if parsed.source_entity_key is not None and parsed.source is None:
         parser.error("--source-entity-key requires --source")
     if parsed.source_entity_key is not None and parsed.command != "collect-backfill":
@@ -62,7 +68,20 @@ def main(arguments: Sequence[str] | None = None) -> int:
     logging.basicConfig(level=settings.log_level)
     for logger_name in ("httpcore", "httpx"):
         logging.getLogger(logger_name).setLevel(logging.WARNING)
-    repository = SqlAlchemyCollectionRepository(create_session_factory(settings))
+    sessions = create_session_factory(settings)
+    controls = SqlAlchemyControlRepository(sessions)
+    if parsed.command == "check-recovery":
+        recovery = run_recovery_checks(
+            settings=settings, repository=controls, sleep=time.sleep
+        )
+        LOGGER.info(
+            "recovery completed checked=%d resumed=%d failed=%d",
+            recovery.checked,
+            recovery.resumed,
+            recovery.failed,
+        )
+        return 1 if recovery.failed else 0
+    repository = SqlAlchemyCollectionRepository(sessions)
     source_keys = (parsed.source,) if parsed.source is not None else SOURCE_KEYS
     if parsed.archive_config is not None:
         try:
@@ -76,6 +95,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
             config=archive_config,
             repository=repository,
             sleep=time.sleep,
+            controls=controls,
         )
     else:
         result = collect_all(
@@ -85,6 +105,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
             mode=mode,
             repository=repository,
             sleep=time.sleep,
+            controls=controls,
         )
     try:
         notify_failures(settings, result)

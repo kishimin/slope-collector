@@ -24,6 +24,7 @@ from pydantic import (
 )
 
 from app.config import SourceConfig, SourceSelectors, load_source_config
+from app.models.control import CollectionPausedError, Target
 from app.scraping.adapter import ParseContractError, SourceAdapter
 from app.scraping.http_client import (
     BoundedHttpClient,
@@ -37,6 +38,7 @@ from app.services.collection import (
     _retry,
     wait_before_request,
 )
+from app.services.control import require_collection_allowed
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -44,6 +46,7 @@ if TYPE_CHECKING:
     import httpx
 
     from app.config import Settings, SourceKey
+    from app.models.control import ControlRepository
     from app.scraping.domain import CollectedRecord
 
 MAX_IMAGE_REPLACEMENT_URL_LENGTH = 2048
@@ -212,7 +215,7 @@ def _require_author(value: JsonValue, expected: str) -> str:
     return author
 
 
-def collect_archive(  # noqa: C901, PLR0913, PLR0915 - explicit collection boundary.
+def collect_archive(  # noqa: C901, PLR0912, PLR0913, PLR0915 - explicit collection boundary.
     *,
     settings: Settings,
     source_key: SourceKey,
@@ -221,6 +224,7 @@ def collect_archive(  # noqa: C901, PLR0913, PLR0915 - explicit collection bound
     repository: ArchiveRepository,
     transport: httpx.BaseTransport | None = None,
     sleep: Callable[[float], None],
+    controls: ControlRepository | None = None,
 ) -> CollectionResult:
     """Supplement every archive page while preserving original checkpoints."""
     if source_entity_key in config.excluded_source_entity_keys:
@@ -285,6 +289,20 @@ def collect_archive(  # noqa: C901, PLR0913, PLR0915 - explicit collection bound
     failures = []
     seen: set[str] = set()
     seen_pages: set[tuple[str, ...]] = set()
+    paused_sites: set[str] = set()
+
+    def before_request() -> None:
+        require_collection_allowed(
+            controls, Target(source_key, "archive"), paused_sites
+        )
+
+    def before_original_request() -> None:
+        before_request()
+        if original_source.base_url.host == source.base_url.host:
+            require_collection_allowed(
+                controls, Target(source_key, "official"), paused_sites
+            )
+
     pages: int | None = None
     with (
         BoundedHttpClient(
@@ -292,17 +310,20 @@ def collect_archive(  # noqa: C901, PLR0913, PLR0915 - explicit collection bound
             user_agent=settings.collector_user_agent,
             limits=limits,
             transport=transport,
+            before_request=before_request,
         ) as client,
         BoundedHttpClient(
             base_url=str(original_source.base_url),
             user_agent=settings.collector_user_agent,
             limits=limits,
             transport=transport,
+            before_request=before_original_request,
         ) as original_client,
     ):
 
         def fetch(path: str) -> JsonValue:
             def request() -> JsonValue:
+                before_request()
                 wait_before_request(
                     settings,
                     path,
@@ -337,6 +358,8 @@ def collect_archive(  # noqa: C901, PLR0913, PLR0915 - explicit collection bound
                     tuple(_record_key(config, key) for key in keys),
                 )
                 visited += 1
+            except CollectionPausedError:
+                break
             except (
                 FetchPermanentError,
                 FetchTemporaryError,
@@ -357,6 +380,7 @@ def collect_archive(  # noqa: C901, PLR0913, PLR0915 - explicit collection bound
                     if config.detail_format == "html":
 
                         def request_html(path: str = original_url) -> str:
+                            before_original_request()
                             wait_before_request(
                                 settings,
                                 path,
@@ -396,6 +420,8 @@ def collect_archive(  # noqa: C901, PLR0913, PLR0915 - explicit collection bound
                         saved += 1
                     else:
                         skipped += 1
+                except CollectionPausedError:
+                    break
                 except (
                     FetchPermanentError,
                     FetchTemporaryError,
@@ -404,6 +430,8 @@ def collect_archive(  # noqa: C901, PLR0913, PLR0915 - explicit collection bound
                     ValueError,
                 ) as error:
                     failures.append(_failure("archive-record", source_key, error))
+            if paused_sites:
+                break
             page += 1
     return CollectionResult(
         saved_records=saved,
@@ -411,6 +439,7 @@ def collect_archive(  # noqa: C901, PLR0913, PLR0915 - explicit collection bound
         failed_records=len(failures),
         visited_pages=visited,
         failures=tuple(failures),
+        paused_sites=tuple(sorted(paused_sites)),
     )
 
 

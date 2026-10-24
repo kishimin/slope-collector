@@ -7,32 +7,18 @@ from typing import TYPE_CHECKING
 import pytest
 from fastapi import status
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
 
 from app.config import Settings
 from app.main import create_app
-from app.models.collection import Base
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
-
-    from sqlalchemy.orm import Session
+    from sqlalchemy.orm import Session, sessionmaker
 
 
 @pytest.fixture
 def anyio_backend() -> str:
     """Exercise the API on asyncio."""
     return "asyncio"
-
-
-@pytest.fixture
-def control_sessions() -> Iterator[sessionmaker[Session]]:
-    """Keep a local database across independently constructed applications."""
-    engine = create_engine("sqlite://")
-    Base.metadata.create_all(engine)
-    yield sessionmaker(engine)
-    engine.dispose()
 
 
 @pytest.mark.anyio

@@ -12,7 +12,6 @@ from app.config import load_settings
 from app.models.control import Target
 from app.repositories.control import SqlAlchemyControlRepository
 from app.services.collection import CollectionMode, collect_all
-from tests.medium.test_collection_control import control_sessions  # noqa: F401
 from tests.medium.test_collection_reliability_integration import (
     RecordingRepository,
     configure_source,

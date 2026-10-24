@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 from app.config import load_settings
 from app.db.session import create_session_factory
 from app.repositories.collection import SqlAlchemyCollectionRepository
+from app.repositories.control import SqlAlchemyControlRepository
 from app.services.archive_collection import collect_archive, load_archive_config
 from app.services.collection import CollectionMode, collect_all
 from app.services.notifications import notify_failures
@@ -62,7 +63,9 @@ def main(arguments: Sequence[str] | None = None) -> int:
     logging.basicConfig(level=settings.log_level)
     for logger_name in ("httpcore", "httpx"):
         logging.getLogger(logger_name).setLevel(logging.WARNING)
-    repository = SqlAlchemyCollectionRepository(create_session_factory(settings))
+    sessions = create_session_factory(settings)
+    repository = SqlAlchemyCollectionRepository(sessions)
+    controls = SqlAlchemyControlRepository(sessions)
     source_keys = (parsed.source,) if parsed.source is not None else SOURCE_KEYS
     if parsed.archive_config is not None:
         try:
@@ -76,6 +79,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
             config=archive_config,
             repository=repository,
             sleep=time.sleep,
+            controls=controls,
         )
     else:
         result = collect_all(
@@ -85,6 +89,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
             mode=mode,
             repository=repository,
             sleep=time.sleep,
+            controls=controls,
         )
     try:
         notify_failures(settings, result)

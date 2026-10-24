@@ -40,7 +40,7 @@ class FetchPermanentError(RuntimeError):
 class BoundedHttpClient:
     """Fetch HTML without leaving a configured HTTPS host boundary."""
 
-    def __init__(
+    def __init__(  # noqa: PLR0913 - explicit transport and request policy injection.
         self,
         *,
         base_url: str,
@@ -48,6 +48,7 @@ class BoundedHttpClient:
         limits: HttpLimits,
         transport: httpx.BaseTransport | None = None,
         clock: Callable[[], float] = time.monotonic,
+        before_request: Callable[[], None] | None = None,
     ) -> None:
         """Create a client with explicit transport and response bounds."""
         parsed = urlsplit(base_url)
@@ -63,6 +64,7 @@ class BoundedHttpClient:
         self._max_response_bytes = limits.max_response_bytes
         self._response_timeout_seconds = limits.response_timeout_seconds
         self._clock = clock
+        self._before_request = before_request
         timeout = httpx.Timeout(
             limits.response_timeout_seconds,
             connect=limits.connect_timeout_seconds,
@@ -107,6 +109,8 @@ class BoundedHttpClient:
         for _redirect_count in range(MAX_REDIRECTS + 1):
             self._raise_if_deadline_exceeded(deadline)
             try:
+                if self._before_request is not None:
+                    self._before_request()
                 with self._client.stream("GET", url) as response:
                     self._raise_if_deadline_exceeded(deadline)
                     if response.is_redirect:

@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 import httpx
 import pytest
 
-from app.config import load_settings
+from app.config import Settings, load_settings
 from app.models.control import Target
 from app.repositories.control import SqlAlchemyControlRepository
 from app.services.collection import CollectionMode, collect_all
@@ -100,3 +100,35 @@ def test_official_pause_stops_next_request_and_keeps_completed_article(
     assert len(repository.records) == result.saved_records
     assert result.failed_records == 0
     assert result.paused_sites == (target.key,)
+
+
+@pytest.mark.medium
+def test_paused_official_site_needs_no_source_contract(
+    control_sessions: sessionmaker[Session],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A paused source is skipped before loading its private collection settings."""
+    controls = SqlAlchemyControlRepository(control_sessions)
+    controls.pause(
+        Target("source_a", "official"),
+        resume_mode="manual",
+        interval=60,
+        reason=None,
+        now=datetime.now(UTC),
+    )
+
+    def unavailable(*_args: object) -> None:
+        message = "paused source configuration must not be loaded"
+        raise AssertionError(message)
+
+    monkeypatch.setattr("app.services.collection.load_source_config", unavailable)
+    result = collect_all(
+        settings=Settings.model_validate(
+            {"database_url": "mysql+pymysql://db/collector"}
+        ),
+        source_keys=("source_a",),
+        mode=CollectionMode.DAILY,
+        repository=RecordingRepository(),
+        controls=controls,
+    )
+    assert result.paused_sites == ("source_a:official",)

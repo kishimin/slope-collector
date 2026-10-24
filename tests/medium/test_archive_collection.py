@@ -180,7 +180,9 @@ def test_archive_pause_preserves_completed_records(
 
 
 @pytest.mark.medium
-@pytest.mark.parametrize("problem", [None, "list", "detail", "missing-field"])
+@pytest.mark.parametrize(
+    "problem", [None, "list", "detail", "missing-field", "empty-list"]
+)
 @pytest.mark.parametrize("detail_format", ["json", "html"])
 def test_archive_recovery_uses_private_contract_without_saving(
     archive_context: tuple[Settings, ArchiveConfig],
@@ -227,8 +229,12 @@ def test_archive_recovery_uses_private_contract_without_saving(
 
     def respond(request: httpx.Request) -> httpx.Response:
         paths.append(request.url.path)
-        if problem == "list":
-            return httpx.Response(200, text="Maintenance")
+        problem_responses = {
+            "list": httpx.Response(200, text="Maintenance"),
+            "empty-list": httpx.Response(200, json={"items": [], "pages": 0}),
+        }
+        if problem in problem_responses:
+            return problem_responses[problem]
         if request.url.path == "/archive":
             return httpx.Response(
                 200,
@@ -275,10 +281,107 @@ def test_archive_recovery_uses_private_contract_without_saving(
         sleep=lambda _: None,
     )
     detail_path = "/detail/42" if detail_format == "html" else "/article/42"
-    assert paths == (["/archive"] if problem == "list" else ["/archive", detail_path])
+    assert paths == (
+        ["/archive"] if problem in {"list", "empty-list"} else ["/archive", detail_path]
+    )
     assert result.checked == 1
     assert result.resumed == (1 if problem is None else 0)
-    assert controls.get(target).paused is (problem is not None)
+    state = controls.get(target)
+    assert state.paused is (problem is not None)
+    assert state.last_check_succeeded is (problem is None)
+    assert state.last_checked_at == now + timedelta(hours=1)
+    assert state.next_check_at == (
+        now + timedelta(hours=2) if problem is not None else None
+    )
+    with control_sessions() as session:
+        assert session.scalar(select(Record)) is None
+
+
+@pytest.mark.medium
+def test_empty_archive_recovery_does_not_block_later_due_site(
+    archive_context: tuple[Settings, ArchiveConfig],
+    control_sessions: sessionmaker[Session],
+    tmp_path: Path,
+) -> None:
+    """An empty archive records failure while a later healthy archive can resume."""
+    settings, config = archive_context
+    healthy = ArchiveConfig.model_validate(
+        {**config.model_dump(), "base_url": "https://healthy-archive.example"}
+    )
+    (tmp_path / ".env.empty.json").write_text(
+        config.model_dump_json(), encoding="utf-8"
+    )
+    (tmp_path / ".env.healthy.json").write_text(
+        healthy.model_dump_json(), encoding="utf-8"
+    )
+    manifest = tmp_path / ".env.recovery.json"
+    manifest.write_text(
+        '[{"source":"source_a","site":"archive","source_entity_key":"7",'
+        '"archive_config_path":".env.empty.json"},'
+        '{"source":"source_b","site":"archive","source_entity_key":"7",'
+        '"archive_config_path":".env.healthy.json"}]',
+        encoding="utf-8",
+    )
+    settings = settings.model_copy(
+        update={"collector_recovery_config_path": SecretStr(str(manifest))}
+    )
+    controls = SqlAlchemyControlRepository(control_sessions)
+    empty = Target("source_a", "archive")
+    available = Target("source_b", "archive")
+    now = datetime(2026, 10, 24, tzinfo=UTC)
+    for target in (empty, available):
+        controls.pause(
+            target, resume_mode="automatic", interval=60, reason=None, now=now
+        )
+    requested: list[tuple[str, str]] = []
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        requested.append((request.url.host, request.url.path))
+        if request.url.host == "archive.example":
+            return httpx.Response(200, json={"items": [], "pages": 0})
+        if request.url.path == "/archive":
+            return httpx.Response(
+                200,
+                json={
+                    "items": [
+                        {
+                            "id": 42,
+                            "url": "https://source.example/detail/42",
+                            "author": "Example author",
+                        }
+                    ],
+                    "pages": 1,
+                },
+            )
+        return httpx.Response(
+            200,
+            json={
+                "title": "Recovered",
+                "author": "Example author",
+                "body": "<p>Recovered</p>",
+                "date": "2026-09-18T03:30:00Z",
+            },
+        )
+
+    result = run_recovery_checks(
+        settings=settings,
+        repository=controls,
+        now=lambda: now + timedelta(hours=1),
+        sleep=lambda _: None,
+        transport=httpx.MockTransport(respond),
+    )
+    assert (result.checked, result.failed, result.resumed) == (2, 1, 1)
+    assert requested == [
+        ("archive.example", "/archive"),
+        ("healthy-archive.example", "/archive"),
+        ("healthy-archive.example", "/article/42"),
+    ]
+    state = controls.get(empty)
+    assert state.paused is True
+    assert state.last_check_succeeded is False
+    assert state.last_check_error == "recovery check failed"
+    assert state.next_check_at == now + timedelta(hours=2)
+    assert controls.get(available).paused is False
     with control_sessions() as session:
         assert session.scalar(select(Record)) is None
 

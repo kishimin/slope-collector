@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Self
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, model_validator
 
 from app.config import SourceKey, load_source_config
-from app.models.control import SiteKind, Target
+from app.models.control import RecoveryCheckError, SiteKind, Target
 from app.scraping.adapter import ParseContractError, SourceAdapter
 from app.scraping.http_client import BoundedHttpClient, HttpLimits
 from app.services.archive_collection import load_archive_config, probe_archive
@@ -24,10 +24,6 @@ if TYPE_CHECKING:
 
 class RecoveryConfigError(ValueError):
     """Recovery configuration is absent or invalid, without exposing its contents."""
-
-
-class RecoveryCancelledError(Exception):
-    """A newer operator action invalidated the running probe."""
 
 
 class RecoveryProbe(BaseModel):
@@ -86,6 +82,54 @@ def load_recovery_probe(path: str, target: Target) -> RecoveryProbe:
         pass
     message = "a valid private recovery probe is required for this site"
     raise RecoveryConfigError(message) from None
+
+
+class ConfiguredRecoveryChecker:
+    """Adapt private source contracts and bounded HTTP to the recovery port."""
+
+    def __init__(
+        self,
+        settings: Settings,
+        *,
+        sleep: Callable[[float], None],
+        transport: httpx.BaseTransport | None = None,
+    ) -> None:
+        """Keep source locations out of the orchestration layer."""
+        self._settings = settings
+        self._sleep = sleep
+        self._transport = transport
+
+    @property
+    def lease_seconds(self) -> float:
+        """Reserve both response deadlines and pacing waits plus parsing time."""
+        return (
+            2
+            * (
+                self._settings.collector_response_timeout_seconds
+                + self._settings.collector_request_interval_seconds
+                + self._settings.collector_request_jitter_seconds
+            )
+            + 60
+        )
+
+    def check(
+        self, target: Target, authorize_request: Callable[[Target], None]
+    ) -> None:
+        """Normalize private configuration and parser failures at the boundary."""
+        try:
+            probe = load_recovery_probe(
+                self._settings.collector_recovery_config_path.get_secret_value(), target
+            )
+            probe_site(
+                self._settings,
+                probe,
+                authorize_request=authorize_request,
+                sleep=self._sleep,
+                transport=self._transport,
+            )
+        except ValueError, RuntimeError, KeyError:
+            message = "recovery list or article could not be validated"
+            raise RecoveryCheckError(message) from None
 
 
 def probe_site(

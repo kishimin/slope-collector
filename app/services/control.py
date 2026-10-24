@@ -7,20 +7,16 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
-from app.models.control import TARGETS
-from app.scraping.recovery import (
+from app.models.control import (
+    TARGETS,
     RecoveryCancelledError,
-    load_recovery_probe,
-    probe_site,
+    RecoveryCheckError,
 )
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    import httpx
-
-    from app.config import Settings
-    from app.models.control import ControlRepository, Target
+    from app.models.control import ControlRepository, RecoveryChecker, Target
 
 LOGGER = logging.getLogger(__name__)
 
@@ -34,29 +30,18 @@ class RecoveryResult:
     failed: int = 0
 
 
-def run_recovery_checks(
+def recover_due_sites(
     *,
-    settings: Settings,
+    checker: RecoveryChecker,
     repository: ControlRepository,
-    sleep: Callable[[float], None],
     now: Callable[[], datetime] = lambda: datetime.now(UTC),
-    transport: httpx.BaseTransport | None = None,
 ) -> RecoveryResult:
     """Check due automatic pauses once and release only the claimed decision."""
     checked = resumed = failed = 0
-    # A check can include two bounded responses and two pacing waits. Leave room
-    # for parsing so a short interval cannot create concurrent external requests.
-    lease_seconds = (
-        2
-        * (
-            settings.collector_response_timeout_seconds
-            + settings.collector_request_interval_seconds
-            + settings.collector_request_jitter_seconds
-        )
-        + 60
-    )
     for target in TARGETS:
-        claim = repository.claim_check(target, now(), lease_seconds=lease_seconds)
+        claim = repository.claim_check(
+            target, now(), lease_seconds=checker.lease_seconds
+        )
         if claim is None:
             continue
         checked += 1
@@ -78,17 +63,8 @@ def run_recovery_checks(
                 raise RecoveryCancelledError
 
         try:
-            probe = load_recovery_probe(
-                settings.collector_recovery_config_path.get_secret_value(), target
-            )
-            probe_site(
-                settings,
-                probe,
-                authorize_request=authorize_request,
-                sleep=sleep,
-                transport=transport,
-            )
-        except (ValueError, RuntimeError, KeyError, RecoveryCancelledError) as error:
+            checker.check(target, authorize_request)
+        except (RecoveryCheckError, RecoveryCancelledError) as error:
             succeeded = False
             LOGGER.warning(
                 "recovery check failed target=%s exception=%s",

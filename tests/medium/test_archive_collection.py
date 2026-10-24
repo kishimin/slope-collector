@@ -14,11 +14,11 @@ from sqlalchemy.orm import sessionmaker
 from app.config import Settings, SourceConfig
 from app.models.collection import Asset, Base, Entity, Record, Source
 from app.models.control import Target
+from app.recovery import run_recovery_checks
 from app.repositories.collection import SqlAlchemyCollectionRepository
 from app.repositories.control import SqlAlchemyControlRepository
 from app.services import archive_collection
 from app.services.archive_collection import ArchiveConfig, collect_archive
-from app.services.control import run_recovery_checks
 from tests.medium.test_collection_repository import collected_record
 
 if TYPE_CHECKING:

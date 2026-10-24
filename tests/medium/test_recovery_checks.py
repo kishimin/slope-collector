@@ -13,8 +13,8 @@ from sqlalchemy import func, select
 from app.config import load_settings
 from app.models.collection import Record
 from app.models.control import Target
+from app.recovery import run_recovery_checks
 from app.repositories.control import SqlAlchemyControlRepository
-from app.services.control import run_recovery_checks
 from tests.medium.test_collection_reliability_integration import configure_source
 
 if TYPE_CHECKING:

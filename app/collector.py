@@ -10,11 +10,11 @@ from typing import TYPE_CHECKING
 
 from app.config import load_settings
 from app.db.session import create_session_factory
+from app.recovery import run_recovery_checks
 from app.repositories.collection import SqlAlchemyCollectionRepository
 from app.repositories.control import SqlAlchemyControlRepository
 from app.services.archive_collection import collect_archive, load_archive_config
 from app.services.collection import CollectionMode, collect_all
-from app.services.control import run_recovery_checks
 from app.services.notifications import notify_failures
 
 if TYPE_CHECKING:

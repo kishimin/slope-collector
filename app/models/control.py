@@ -1,12 +1,16 @@
 """Maintenance state shared by operators, collectors, and recovery checks."""
 
+from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime  # noqa: TC003 - API dataclass schemas resolve this type.
-from typing import Literal, Protocol
+from typing import TYPE_CHECKING, Literal, Protocol
 
 from app.config import (
     SourceKey,  # noqa: TC001 - API dataclass schemas resolve this type.
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 type SiteKind = Literal["official", "archive"]
 type ResumeMode = Literal["manual", "automatic"]
@@ -53,6 +57,27 @@ class ControlStorageError(RuntimeError):
 
 class CollectionPausedError(Exception):
     """Stop before another outbound request without treating a pause as failure."""
+
+
+class RecoveryCheckError(RuntimeError):
+    """A configured site's list or article could not be validated."""
+
+
+class RecoveryCancelledError(Exception):
+    """A newer operator action invalidated the running probe."""
+
+
+class RecoveryChecker(Protocol):
+    """Bounded recovery access that never saves articles."""
+
+    @property
+    def lease_seconds(self) -> float:
+        """Return the time reserved for a complete check."""
+
+    def check(
+        self, target: Target, authorize_request: Callable[[Target], None]
+    ) -> None:
+        """Validate one list and article or raise a sanitized check error."""
 
 
 class ControlRepository(Protocol):
